@@ -52,6 +52,15 @@ const BUILTIN_SEEDS = [
     enabled: true,
     lane: "public" as Lane,
   },
+  {
+    id: "00000000-0000-0000-0000-000000000003",
+    type: "builtin" as const,
+    name: "Gmail (read-only)",
+    description: "Read your Gmail inbox as owner. Never sends, deletes, or modifies mail.",
+    tool_names: ["read_gmail"],
+    enabled: false,
+    lane: "owner" as Lane,
+  },
 ];
 
 // Upsert built-in connector rows. Idempotent — safe to call on every request.

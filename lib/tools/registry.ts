@@ -4,6 +4,7 @@ import { create_scheduling_link } from "./create_scheduling_link";
 import { leave_message } from "./leave_message";
 import { owner_ping } from "./owner_ping";
 import { list_visitors } from "./owner/list_visitors";
+import { read_gmail } from "./owner/read_gmail";
 import { get_connector_status } from "./owner/get_connector_status";
 import { toggle_connector } from "./owner/toggle_connector";
 import { list_mcp_connectors } from "./owner/list_mcp_connectors";
@@ -56,6 +57,7 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
   // Owner tools
   owner_ping,
   list_visitors,
+  read_gmail,
   get_connector_status,
   toggle_connector,
   list_mcp_connectors,

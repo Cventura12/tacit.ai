@@ -230,6 +230,8 @@ function AddConnectorForm({ onAdded, onCancel }: AddFormProps) {
   );
 }
 
+const GMAIL_CONNECTOR_ID = "00000000-0000-0000-0000-000000000003";
+
 // ─── Visitor log types ────────────────────────────────────────────────────────
 
 interface Visitor {
@@ -251,6 +253,7 @@ export default function OwnerPanel() {
 
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [visitorsLoading, setVisitorsLoading] = useState(true);
+  const [gmailToast, setGmailToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -279,6 +282,24 @@ export default function OwnerPanel() {
   }, []);
 
   useEffect(() => { load(); loadVisitors(); }, [load, loadVisitors]);
+
+  // Read ?gmail=connected / ?gmail=error from OAuth callback redirect, then clear.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gmail = params.get("gmail");
+    if (gmail === "connected") {
+      setGmailToast({ type: "success", text: "Gmail connected" });
+    } else if (gmail === "error") {
+      const reason = params.get("reason") ?? "unknown error";
+      setGmailToast({ type: "error", text: `Gmail error: ${reason}` });
+    }
+    if (gmail) {
+      params.delete("gmail");
+      params.delete("reason");
+      const qs = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    }
+  }, []);
 
   async function toggle(id: string, currentEnabled: boolean) {
     // Optimistic update
@@ -333,6 +354,23 @@ export default function OwnerPanel() {
         </div>
       )}
 
+      {gmailToast && (
+        <div className={`mb-6 flex items-center justify-between gap-4 text-sm rounded-lg px-4 py-3 border ${
+          gmailToast.type === "success"
+            ? "text-green border-green/30 bg-green/10"
+            : "text-red-400 border-red-700/40 bg-red-950/30"
+        }`}>
+          <span>{gmailToast.text}</span>
+          <button
+            type="button"
+            onClick={() => setGmailToast(null)}
+            className="text-base leading-none opacity-60 hover:opacity-100 transition-opacity shrink-0"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Built-in connectors */}
       <section className="mb-8">
         <p className="text-[11px] font-medium text-gray-2 uppercase tracking-wider mb-3">
@@ -354,6 +392,23 @@ export default function OwnerPanel() {
                     <LaneBadge lane={c.lane} />
                   </div>
                   <p className="text-xs text-gray-2">{c.description}</p>
+                  {c.id === GMAIL_CONNECTOR_ID && (
+                    <div className="flex items-center gap-3 mt-1.5">
+                      {c.enabled && c.credential_masked ? (
+                        <span className="text-xs text-green">
+                          Connected · <span className="font-mono">{c.credential_masked}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-3">Not connected</span>
+                      )}
+                      <a
+                        href="/api/owner/gmail/connect"
+                        className="text-xs text-navy hover:text-navy-soft transition-colors"
+                      >
+                        {c.enabled && c.credential_masked ? "Reconnect" : "Connect"}
+                      </a>
+                    </div>
+                  )}
                 </div>
                 <Toggle
                   checked={c.enabled}
