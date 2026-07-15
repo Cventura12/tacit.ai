@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { saveRefreshTokenFromCode } from "@/lib/gmail";
 import { logOwnerAction } from "@/lib/owner-actions";
 import { GMAIL_OAUTH_STATE_COOKIE } from "../connect/route";
@@ -14,12 +13,10 @@ function ownerRedirect(req: NextRequest, params: Record<string, string>): NextRe
 }
 
 export async function GET(req: NextRequest) {
-  // Owner-only — verify session before touching any query params.
-  const token = req.cookies.get(SESSION_COOKIE)?.value;
-  if (!token || !(await verifySessionToken(token))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  // No session check here — the strict sameSite cookie won't survive a
+  // cross-site redirect from Google. Security is provided by the CSRF state
+  // cookie (sameSite: lax) verified below: its presence proves this callback
+  // was initiated by someone who held a valid owner session.
   const { searchParams } = req.nextUrl;
   const error = searchParams.get("error");
   const code = searchParams.get("code");
