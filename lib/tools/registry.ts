@@ -12,6 +12,7 @@ import { set_connector_lane } from "./owner/set_connector_lane";
 import { toggle_mcp_connector } from "./owner/toggle_mcp_connector";
 import { search_documents } from "./owner/search_documents";
 import { handle_email } from "./owner/handle_email";
+import { cross_reference } from "./owner/cross_reference";
 
 // ─── Tool registry types ──────────────────────────────────────────────────────
 
@@ -70,4 +71,5 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
   toggle_mcp_connector,
   search_documents,
   handle_email,
+  cross_reference,
 ];
