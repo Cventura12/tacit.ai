@@ -10,6 +10,8 @@ import { toggle_connector } from "./owner/toggle_connector";
 import { list_mcp_connectors } from "./owner/list_mcp_connectors";
 import { set_connector_lane } from "./owner/set_connector_lane";
 import { toggle_mcp_connector } from "./owner/toggle_mcp_connector";
+import { search_documents } from "./owner/search_documents";
+import { handle_email } from "./owner/handle_email";
 
 // ─── Tool registry types ──────────────────────────────────────────────────────
 
@@ -24,6 +26,9 @@ export interface ToolExecutionContext {
   // Raw session token — owner tools independently re-verify this before acting.
   // Only populated when the request carries a valid owner session.
   ownerToken?: string;
+  // Emit an incremental status event to the SSE stream mid-tool-run.
+  // Used by long-running tools like handle_email to report sub-steps.
+  onStatus?: (label: string) => void;
 }
 
 export interface ToolDefinition {
@@ -63,4 +68,6 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
   list_mcp_connectors,
   set_connector_lane,
   toggle_mcp_connector,
+  search_documents,
+  handle_email,
 ];

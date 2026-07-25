@@ -2,39 +2,65 @@
 
 /* ── Design tokens ────────────────────────────────────────────── */
 :root {
-  --navy:     #2652c4;    /* vivid deep blue — visible on dark bg */
-  --navy-soft:#3060d4;
-  --ink:      #eae7e0;    /* warm off-white */
-  --gray-1:   #858890;
-  --gray-2:   #515259;
-  --gray-3:   #363840;
-  --line:     #1d2030;
-  --line-2:   #20233a;
-  --bubble:   #141722;    /* dark surface — inputs + user bubbles */
-  --bg:       #0d1017;    /* deep dark background */
-  --green:    #3aaf78;
+  /* Accent — one green, three shades */
+  --navy:        #1B7A4B;   /* primary action (send button, focus rings, checked state) */
+  --navy-soft:   #166534;   /* hover — slightly darker for depth on light bg */
+  --green:       #1B7A4B;   /* indicator dot, check icon, citation accent */
+  --green-dark:  #14532D;   /* text on pale green surface */
+  --green-tint:  #DCFCE7;   /* pale green badge background */
+
+  /* Forest green — sidebar and trace panel dark surfaces */
+  --forest:        #1a2b1f;   /* sidebar / trace card background */
+  --forest-2:      #1e3325;   /* hover states within forest */
+  --forest-border: rgba(255,255,255,0.08);   /* hairline border on forest */
+  --forest-text:   rgba(255,255,255,0.88);   /* primary text on forest */
+  --forest-muted:  rgba(255,255,255,0.42);   /* muted / label text on forest */
+  --forest-icon:   rgba(255,255,255,0.28);   /* icon tint on forest */
+
+  /* Text hierarchy */
+  --ink:    #1A1A1A;   /* primary — near-black, softer than pure #000 */
+  --gray-1: #525252;   /* strong secondary */
+  --gray-2: #808080;   /* muted labels, timestamps */
+  --gray-3: #ABABAB;   /* very subtle — decorative borders and icons only */
+
+  /* Surfaces */
+  --bg:     #FFFFFF;   /* page background */
+  --bubble: #F5F4F2;   /* off-white — inputs, user chat bubbles, raised cards */
+
+  /* Borders — hairline only */
+  --line:   #E5E5E3;   /* standard 0.5px border */
+  --line-2: #EDEDEB;   /* softer inner border */
+
+  /* Tell the browser this is a light-only theme so form controls,
+     scrollbars, and system UI don't flip to dark even if the OS is in dark mode */
+  color-scheme: light;
 }
 
 /* ── Tailwind theme — mirrors tokens as utility classes ───────── */
 @theme inline {
   /* Colors */
-  --color-navy:      var(--navy);
-  --color-navy-soft: var(--navy-soft);
-  --color-ink:       var(--ink);
-  --color-gray-1:    var(--gray-1);
-  --color-gray-2:    var(--gray-2);
-  --color-gray-3:    var(--gray-3);
-  --color-line:      var(--line);
-  --color-line-2:    var(--line-2);
-  --color-bubble:    var(--bubble);
-  --color-bg:        var(--bg);
-  --color-green:     var(--green);
+  --color-navy:        var(--navy);
+  --color-navy-soft:   var(--navy-soft);
+  --color-green:       var(--green);
+  --color-green-dark:  var(--green-dark);
+  --color-green-tint:  var(--green-tint);
+  --color-forest:      var(--forest);
+  --color-forest-2:    var(--forest-2);
+  --color-ink:         var(--ink);
+  --color-gray-1:      var(--gray-1);
+  --color-gray-2:      var(--gray-2);
+  --color-gray-3:      var(--gray-3);
+  --color-bubble:      var(--bubble);
+  --color-bg:          var(--bg);
+  --color-line:        var(--line);
+  --color-line-2:      var(--line-2);
 
-  /* Fonts — next/font sets --font-fraunces and --font-inter on <html> */
-  --font-sans:  var(--font-inter);
-  --font-serif: var(--font-fraunces);
+  /* Fonts */
+  --font-sans:  "Inter", system-ui, sans-serif;
+  --font-serif: "Fraunces", Georgia, serif;
+  --font-mono:  ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
 
-  /* Breakpoints — 600px mobile cutoff per spec */
+  /* Breakpoints */
   --breakpoint-sm: 600px;
 }
 
@@ -42,84 +68,18 @@
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-inter), system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
 }
 
-/* Subtle grain overlay — adds depth without looking like a dev site */
+/* Subtle grain on white — texture without dev-site feel */
 body::after {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 9999;
   pointer-events: none;
-  opacity: 0.035;
+  opacity: 0.022;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
   background-size: 200px 200px;
 }
 
-/* ── Message appear animation ─────────────────────────────────── */
-@keyframes message-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.message-animate {
-  animation: message-in 0.4s ease-out both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .message-animate {
-    animation: none;
-  }
-}
-
-/* ── Typing indicator dots ────────────────────────────────────── */
-@keyframes dot-blink {
-  0%, 100% { opacity: 0.25; }
-  50%       { opacity: 1; }
-}
-
-.typing-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--gray-2);
-  animation: dot-blink 1.2s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .typing-dot {
-    animation: none;
-    opacity: 0.5;
-  }
-}
-
-/* ── Tool status line dot ─────────────────────────────────────────── */
-@keyframes status-pulse {
-  0%, 100% { opacity: 0.2; }
-  50%       { opacity: 0.7; }
-}
-
-.status-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--gray-2);
-  flex-shrink: 0;
-  animation: status-pulse 1.5s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .status-dot {
-    animation: none;
-    opacity: 0.5;
-  }
-}

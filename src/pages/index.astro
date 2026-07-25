@@ -1,0 +1,8 @@
+---
+import Layout from "@/src/layouts/Layout.astro";
+import ChatPage from "@/components/ChatPage";
+---
+
+<Layout>
+  <ChatPage client:only="react" />
+</Layout>

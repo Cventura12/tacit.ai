@@ -1,5 +1,4 @@
-import type { ToolDefinition, ToolExecutionContext } from "../registry";
-import { verifySessionToken } from "@/lib/session";
+import type { ToolDefinition } from "../registry";
 import { getDb } from "@/lib/db";
 import { logOwnerAction } from "@/lib/owner-actions";
 
@@ -29,11 +28,7 @@ export const set_connector_lane: ToolDefinition = {
   },
   lane: "owner",
   statusLabel: "updating connector lane…",
-  execute: async (input, ctx: ToolExecutionContext) => {
-    if (!ctx.ownerToken || !(await verifySessionToken(ctx.ownerToken))) {
-      return JSON.stringify({ error: "Unauthorized" });
-    }
-
+  execute: async (input) => {
     const name = typeof input.name === "string" ? input.name.trim() : "";
     const lane = input.lane === "public" ? "public" : "owner";
     const confirmed = input.confirmed === true;

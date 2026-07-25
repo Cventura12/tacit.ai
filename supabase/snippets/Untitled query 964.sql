@@ -1,0 +1,1 @@
+delete from documents where title like 'I-360%';

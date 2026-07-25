@@ -1,5 +1,4 @@
-import type { ToolDefinition, ToolExecutionContext } from "../registry";
-import { verifySessionToken } from "@/lib/session";
+import type { ToolDefinition } from "../registry";
 import { listConnectors } from "@/lib/connectors";
 
 export const get_connector_status: ToolDefinition = {
@@ -13,10 +12,7 @@ export const get_connector_status: ToolDefinition = {
   },
   lane: "owner",
   statusLabel: "checking your connectors…",
-  execute: async (_input, ctx: ToolExecutionContext) => {
-    if (!ctx.ownerToken || !(await verifySessionToken(ctx.ownerToken))) {
-      return JSON.stringify({ error: "Unauthorized" });
-    }
+  execute: async () => {
     const connectors = await listConnectors();
     return JSON.stringify({ connectors });
   },

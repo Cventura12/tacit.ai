@@ -1,5 +1,4 @@
-import type { ToolDefinition, ToolExecutionContext } from "../registry";
-import { verifySessionToken } from "@/lib/session";
+import type { ToolDefinition } from "../registry";
 import { listRecentVisitors } from "@/lib/visitor-log";
 import { logOwnerAction } from "@/lib/owner-actions";
 
@@ -19,10 +18,7 @@ export const list_visitors: ToolDefinition = {
   },
   lane: "owner",
   statusLabel: "checking your visitors…",
-  execute: async (input, ctx: ToolExecutionContext) => {
-    if (!ctx.ownerToken || !(await verifySessionToken(ctx.ownerToken))) {
-      return JSON.stringify({ error: "Unauthorized" });
-    }
+  execute: async (input) => {
     const limit = Math.min(typeof input.limit === "number" ? input.limit : 20, 50);
     const visitors = await listRecentVisitors(limit);
     void logOwnerAction("list_visitors", { limit });

@@ -1,0 +1,8 @@
+project_id = "personal-ai"
+
+# Bind all local Supabase services to loopback only — not reachable from the LAN.
+# These settings take effect when running `npx supabase start` (local Docker stack).
+# The cloud project (yyvtrhhwonjiylmqextf) is unaffected by this file.
+
+[analytics]
+enabled = false

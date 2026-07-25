@@ -1,5 +1,4 @@
-import type { ToolDefinition, ToolExecutionContext } from "../registry";
-import { verifySessionToken } from "@/lib/session";
+import type { ToolDefinition } from "../registry";
 import { getDb } from "@/lib/db";
 import { logOwnerAction } from "@/lib/owner-actions";
 
@@ -27,11 +26,7 @@ export const toggle_mcp_connector: ToolDefinition = {
   },
   lane: "owner",
   statusLabel: "updating that connector…",
-  execute: async (input, ctx: ToolExecutionContext) => {
-    if (!ctx.ownerToken || !(await verifySessionToken(ctx.ownerToken))) {
-      return JSON.stringify({ error: "Unauthorized" });
-    }
-
+  execute: async (input) => {
     const name = typeof input.name === "string" ? input.name.trim() : "";
     const enabled = input.enabled === true;
     const confirmed = input.confirmed === true;

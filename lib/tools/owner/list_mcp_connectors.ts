@@ -1,5 +1,4 @@
-import type { ToolDefinition, ToolExecutionContext } from "../registry";
-import { verifySessionToken } from "@/lib/session";
+import type { ToolDefinition } from "../registry";
 import { getDb, isDbConfigured } from "@/lib/db";
 
 export const list_mcp_connectors: ToolDefinition = {
@@ -13,10 +12,7 @@ export const list_mcp_connectors: ToolDefinition = {
   },
   lane: "owner",
   statusLabel: "checking MCP connectors…",
-  execute: async (_input, ctx: ToolExecutionContext) => {
-    if (!ctx.ownerToken || !(await verifySessionToken(ctx.ownerToken))) {
-      return JSON.stringify({ error: "Unauthorized" });
-    }
+  execute: async () => {
     if (!isDbConfigured()) {
       return JSON.stringify({ connectors: [] });
     }

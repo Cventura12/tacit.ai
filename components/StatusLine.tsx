@@ -1,10 +1,22 @@
-// Inline status shown while a tool is executing — quiet, on-brand, not a bubble.
-// Replaces the typing indicator for the duration of a tool call.
+import { motion } from "framer-motion";
+
 export function StatusLine({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-[7px] px-1" role="status" aria-live="polite">
-      <span className="status-dot" aria-hidden="true" />
-      <span className="text-[13.5px] italic text-gray-3 leading-none">{label}</span>
+      <motion.span
+        aria-hidden="true"
+        style={{
+          display: "inline-block",
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: "var(--gray-2)",
+          flexShrink: 0,
+        }}
+        animate={{ opacity: [0.2, 0.7, 0.2] }}
+        transition={{ duration: 1.5, ease: "easeInOut", repeat: Infinity }}
+      />
+      <span className="text-[13.5px] italic text-gray-1 leading-none">{label}</span>
     </div>
   );
 }

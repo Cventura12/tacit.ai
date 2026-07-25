@@ -1,5 +1,4 @@
-import type { ToolDefinition, ToolExecutionContext } from "../registry";
-import { verifySessionToken } from "@/lib/session";
+import type { ToolDefinition } from "../registry";
 import { readRecent } from "@/lib/gmail";
 import { logOwnerAction } from "@/lib/owner-actions";
 
@@ -24,10 +23,7 @@ export const read_gmail: ToolDefinition = {
   },
   lane: "owner",
   statusLabel: "reading your inbox…",
-  execute: async (input, ctx: ToolExecutionContext) => {
-    if (!ctx.ownerToken || !(await verifySessionToken(ctx.ownerToken))) {
-      return JSON.stringify({ error: "Unauthorized" });
-    }
+  execute: async (input) => {
     const query =
       typeof input.query === "string" && input.query.trim()
         ? input.query.trim()

@@ -1,4 +1,4 @@
-import type { ApiMessage, StreamEvent } from "./types";
+import type { ApiMessage, StreamEvent, EmailProposal } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -15,15 +15,21 @@ export interface ReplyMeta {
   gateAnswer?: string;
 }
 
+export interface ReplyResult {
+  text: string;
+  runId: string | undefined;
+  proposal?: EmailProposal;
+}
+
 // Consumes the SSE stream from /api/chat.
 // Calls onStatus whenever the server emits a "status" event (tool running).
-// Returns the model's final text reply.
+// Returns the model's final text reply and the agent_runs id for tracing.
 // Throws ApiError on HTTP errors or stream-level failures.
 export async function getReply(
   messages: ApiMessage[],
   onStatus?: (label: string) => void,
   meta?: ReplyMeta
-): Promise<string> {
+): Promise<ReplyResult> {
   let res: Response;
   try {
     res = await fetch("/api/chat", {
@@ -44,6 +50,8 @@ export async function getReply(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let runId: string | undefined;
+  let proposal: EmailProposal | undefined;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -66,8 +74,12 @@ export async function getReply(
 
       if (event.type === "status") {
         onStatus?.(event.label);
+      } else if (event.type === "run_id") {
+        runId = event.id;
+      } else if (event.type === "proposal") {
+        proposal = event.data;
       } else if (event.type === "text") {
-        return event.content;
+        return { text: event.content, runId, proposal };
       } else if (event.type === "error") {
         throw new ApiError(500, event.message);
       }

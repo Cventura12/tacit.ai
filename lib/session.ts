@@ -7,8 +7,8 @@ import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE = "caleb_ai_owner_session";
 const ALGORITHM = "HS256";
-// 7 days in seconds (also used as cookie Max-Age)
-export const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
+// 30 days in seconds — long-lived for single-user local use
+export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 
 function signingKey(): Uint8Array {
   const secret = process.env.SESSION_SECRET;

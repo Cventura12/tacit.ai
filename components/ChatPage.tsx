@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import type { Message, ApiMessage } from "@/lib/types";
+import { useState, useRef, useEffect, useCallback } from "react";
+import type { Message, ApiMessage, TraceStep, RecentRun } from "@/lib/types";
 import { getReply, ApiError } from "@/lib/getReply";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
+import { Sidebar } from "./Sidebar";
+import { TracePanel } from "./TracePanel";
+import { TacitMark } from "./TacitMark";
 
 type PageState = "gate" | "chat";
 
@@ -12,8 +15,6 @@ function newId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-// Map UI messages + the invisible seed into the wire format /api/chat expects.
-// Skips isError bubbles so a failed reply is never sent back as assistant context.
 function buildApiHistory(seed: ApiMessage | null, msgs: Message[]): ApiMessage[] {
   const history: ApiMessage[] = seed ? [seed] : [];
   for (const m of msgs) {
@@ -26,7 +27,6 @@ function buildApiHistory(seed: ApiMessage | null, msgs: Message[]): ApiMessage[]
   return history;
 }
 
-// In-voice fallback text — stays in Caleb's register even when things break.
 function errorBubble(err: unknown): Message {
   const text =
     err instanceof ApiError && err.status === 429
@@ -35,13 +35,11 @@ function errorBubble(err: unknown): Message {
   return { id: newId(), role: "them", text, isError: true };
 }
 
-// Generate a stable session ID per browser session (survives React re-renders,
-// resets on tab close). useRef + useEffect avoids SSR hydration mismatch.
 function useSessionId(): string | undefined {
   const ref = useRef<string | undefined>(undefined);
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    const KEY = "caleb_ai_sid";
+    const KEY = "tacit_sid";
     let id = sessionStorage.getItem(KEY);
     if (!id) {
       id = crypto.randomUUID();
@@ -53,43 +51,83 @@ function useSessionId(): string | undefined {
   return ready ? ref.current : undefined;
 }
 
-function useIsOwner(): boolean {
-  const [isOwner, setIsOwner] = useState(false);
-  useEffect(() => {
-    fetch("/api/owner/me")
-      .then((r) => r.json())
-      .then((d: { isOwner?: boolean }) => setIsOwner(d.isOwner === true))
-      .catch(() => {});
-  }, []);
-  return isOwner;
+function relativeTime(date: Date): string {
+  const diff = Date.now() - date.getTime();
+  if (diff < 90000) return "Now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+  if (diff < 86400000) return "Today";
+  return "Yesterday";
 }
 
 export default function ChatPage() {
   const sessionId = useSessionId();
-  const isOwner = useIsOwner();
 
-  // ── Gate state ────────────────────────────────────────────────────────────
   const [pageState, setPageState] = useState<PageState>("gate");
   const [gateInput, setGateInput] = useState("");
   const gateTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ── Chat state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<Message[]>([]);
-  // Invisible seed — framing sent to the API on every turn but never rendered
   const [apiSeed, setApiSeed] = useState<ApiMessage | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [hasSentMessage, setHasSentMessage] = useState(false);
 
+  // Trace panel state — accumulated from SSE status events during the current run
+  const [traceSteps, setTraceSteps] = useState<TraceStep[]>([]);
+  const [currentRunLabel, setCurrentRunLabel] = useState<string | undefined>(undefined);
+
+  // Sidebar recent runs — one entry per completed proposal
+  const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
+  // Track timestamps for relative-time display
+  const runTimestampsRef = useRef<Map<string, Date>>(new Map());
+
   const isGate = pageState === "gate";
 
-  // ── Gate submit — transitions to chat and fetches the personalized greeting ─
+  // Called by both gate submit and message send to accumulate trace steps
+  const handleStatus = useCallback((label: string) => {
+    setToolStatus(label);
+    setTraceSteps((prev) => {
+      const updated = prev.map((s) =>
+        s.status === "active" ? { ...s, status: "done" as const } : s
+      );
+      return [...updated, { label, status: "active" as const }];
+    });
+  }, []);
+
+  // Reset trace for a new request
+  function beginNewRun(label: string) {
+    setTraceSteps([]);
+    setCurrentRunLabel(label);
+  }
+
+  // Mark all steps done after a run completes
+  function finalizeTrace() {
+    setTraceSteps((prev) => prev.map((s) => ({ ...s, status: "done" as const })));
+  }
+
+  // Add a completed run to the sidebar list
+  function addRecentRun(label: string) {
+    const id = newId();
+    const now = new Date();
+    runTimestampsRef.current.set(id, now);
+    setRecentRuns((prev) => [
+      { id, label, relativeTime: "Now", isCurrent: true },
+      ...prev
+        .slice(0, 4)
+        .map((r) => ({
+          ...r,
+          isCurrent: false,
+          relativeTime: relativeTime(runTimestampsRef.current.get(r.id) ?? new Date()),
+        })),
+    ]);
+  }
+
+  // ── Gate submit ──────────────────────────────────────────────────────────────
+
   const handleGateSubmit = async () => {
     const trimmed = gateInput.trim();
     if (!trimmed) return;
 
-    // Build the invisible seed: tells the model who the visitor is and what
-    // kind of opening to give, without showing any of this text in the thread.
     const seed: ApiMessage = {
       role: "user",
       content:
@@ -103,18 +141,20 @@ export default function ChatPage() {
     setApiSeed(seed);
     setPageState("chat");
     setIsTyping(true);
+    beginNewRun("Visitor greeting");
 
-    // Fetch the personalized greeting immediately — first visible message in thread
     try {
-      const reply = await getReply(
+      const { text: reply, runId, proposal } = await getReply(
         [seed],
-        (label) => setToolStatus(label),
+        handleStatus,
         { sessionId, gateAnswer: trimmed }
       );
       setToolStatus(null);
-      setMessages([{ id: newId(), role: "them", text: reply }]);
+      finalizeTrace();
+      setMessages([{ id: newId(), role: "them", text: reply, runId, proposal }]);
     } catch (err) {
       setToolStatus(null);
+      finalizeTrace();
       setMessages([errorBubble(err)]);
     } finally {
       setIsTyping(false);
@@ -135,12 +175,11 @@ export default function ChatPage() {
     el.style.height = `${el.scrollHeight}px`;
   };
 
-  // ── Chat send handler ─────────────────────────────────────────────────────
+  // ── Chat message send ────────────────────────────────────────────────────────
+
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || isTyping) return;
 
-    // Drop any lingering error bubble before appending the new user message.
-    // This keeps the API history clean and clears the error from the UI.
     const base = messages.filter((m) => !m.isError);
     const userMsg: Message = { id: newId(), role: "me", text };
     const next = [...base, userMsg];
@@ -149,19 +188,30 @@ export default function ChatPage() {
     setHasSentMessage(true);
     setIsTyping(true);
 
+    // Use first 40 chars of the user's message as the run label
+    const runLabel = text.length > 40 ? text.slice(0, 38) + "…" : text;
+    beginNewRun(runLabel);
+
     try {
-      const reply = await getReply(
+      const { text: reply, runId, proposal } = await getReply(
         buildApiHistory(apiSeed, next),
-        (label) => setToolStatus(label),
+        handleStatus,
         { sessionId }
       );
       setToolStatus(null);
+      finalizeTrace();
+
+      if (proposal) {
+        addRecentRun(runLabel);
+      }
+
       setMessages((prev) => [
         ...prev.filter((m) => !m.isError),
-        { id: newId(), role: "them", text: reply },
+        { id: newId(), role: "them", text: reply, runId, proposal },
       ]);
     } catch (err) {
       setToolStatus(null);
+      finalizeTrace();
       setMessages((prev) => [
         ...prev.filter((m) => !m.isError),
         errorBubble(err),
@@ -171,145 +221,157 @@ export default function ChatPage() {
     }
   };
 
-  return (
-    <div className="flex flex-col h-dvh">
+  // ── New request (sidebar CTA) ────────────────────────────────────────────────
 
-      {/* ── TOP BAR ──────────────────────────────────────────────────────── */}
-      <header
-        className="shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 bg-bg/95 backdrop-blur-sm z-10"
-        style={{ borderBottom: "0.5px solid var(--line)" }}
-      >
-        <div className="flex items-center gap-3">
-          {/*
-            AVATAR — swap this div for an <Image> to replace initials with a photo.
-            Keep the same w-[38px] h-[38px] rounded-full wrapper.
-          */}
-          <div
-            className="w-[38px] h-[38px] rounded-full bg-navy flex items-center justify-center shrink-0 select-none"
-            aria-hidden="true"
-          >
-            <span className="text-white text-[13px] font-medium tracking-wide">
-              CV
-            </span>
+  const handleNewRequest = () => {
+    setMessages([]);
+    setApiSeed(null);
+    setHasSentMessage(false);
+    setTraceSteps([]);
+    setCurrentRunLabel(undefined);
+    setToolStatus(null);
+    setPageState("gate");
+    setGateInput("");
+  };
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex h-dvh overflow-hidden">
+
+      {/* ── LEFT SIDEBAR ──────────────────────────────────────────────────────── */}
+      <Sidebar recentRuns={recentRuns} onNewRequest={handleNewRequest} />
+
+      {/* ── CENTER PANEL ──────────────────────────────────────────────────────── */}
+      <div className="flex flex-col flex-1 min-w-0">
+
+        {/* Top bar */}
+        <header
+          className="shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 bg-bg/95 backdrop-blur-sm z-10"
+          style={{ borderBottom: "0.5px solid var(--line)" }}
+        >
+          <div className="flex items-center gap-2.5">
+            <TacitMark size={30} />
+            <div>
+              <p className="text-[13px] font-medium text-ink leading-none mb-[3px]">
+                {currentRunLabel ?? "TACIT"}
+              </p>
+              <div className="flex items-center gap-[5px]">
+                <span className="w-[5px] h-[5px] rounded-full bg-green shrink-0" aria-hidden="true" />
+                <span className="text-[11px] text-gray-2 leading-none">
+                  {isGate ? "local evidence agent" : "local run"}
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <p className="text-[14px] font-medium text-ink leading-none mb-[3px]">
-              Caleb Ventura
-            </p>
-            <div className="flex items-center gap-[5px]">
-              <span
-                className="w-[6px] h-[6px] rounded-full bg-green shrink-0"
-                aria-hidden="true"
-              />
-              <span className="text-[11.5px] text-gray-2 leading-none">
-                {isGate ? "the AI version of me" : "online"}
+          {!isGate && (
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-full"
+              style={{ border: "0.5px solid var(--line-2)", background: "var(--bubble)" }}
+            >
+              <span className="w-[6px] h-[6px] rounded-full bg-green shrink-0" />
+              <span className="font-mono text-[10px] text-gray-1 uppercase tracking-[0.1em]">
+                LOCAL RUN
               </span>
             </div>
-          </div>
-        </div>
+          )}
+        </header>
 
-        {isOwner ? (
-          <div className="flex items-center gap-3 shrink-0">
-            <span className="text-[11px] font-medium text-navy/70 bg-navy/8 px-2 py-0.5 rounded-full leading-none">
-              owner
-            </span>
-            <a
-              href="/owner"
-              className="text-[11px] text-gray-2 hover:text-ink transition-colors"
-              title="Control panel"
-            >
-              panel ↗
-            </a>
-          </div>
-        ) : (
-          <span className="text-[11px] text-gray-3 shrink-0">
-            Chattanooga&nbsp;·&nbsp;18
-          </span>
-        )}
-      </header>
-
-      {/* ── STAGE ────────────────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-y-auto">
-        {isGate ? (
-          <div className="flex flex-col min-h-full px-4 sm:px-8 pt-12 sm:pt-14 pb-5">
-            <div>
-              <h1 className="font-serif text-[26px] sm:text-[31px] text-ink leading-[1.3] max-w-[440px] mb-4">
-                Hey — I&apos;m Caleb. The AI trained to be me.
-              </h1>
-              <p className="text-[15.5px] text-gray-1 max-w-[410px] mb-7 leading-relaxed">
-                Ask me what I&apos;m building, where I&apos;m from, what I believe. But
-                first —
-              </p>
-              <p className="text-[11px] text-gray-2 uppercase tracking-[0.08em]">
-                How do you know me?
-              </p>
+        {/* Main content */}
+        <main className="flex-1 overflow-y-auto">
+          {isGate ? (
+            <div className="flex flex-col min-h-full px-4 sm:px-8 pt-12 sm:pt-14 pb-5">
+              <div>
+                <p className="font-mono text-[9px] tracking-[0.12em] uppercase text-gray-2 mb-4">
+                  Current request
+                </p>
+                <p className="text-[12px] text-gray-2 max-w-[400px] mb-2 leading-relaxed">
+                  Tacit retrieves and cites. You decide what the evidence means.
+                </p>
+                <h1 className="font-serif text-[26px] sm:text-[31px] text-ink leading-[1.25] max-w-[460px] mb-6">
+                  Review the evidence before you act.
+                </h1>
+                <p className="text-[11px] text-gray-2 uppercase tracking-[0.08em]">
+                  How do you know me?
+                </p>
+              </div>
             </div>
-            <p className="mt-auto pt-8 text-[11px] text-gray-3 tracking-wide">caleb.ai</p>
+          ) : (
+            <MessageList messages={messages} isTyping={isTyping} toolStatus={toolStatus} />
+          )}
+        </main>
+
+        {/* Composer dock */}
+        {isGate ? (
+          <div
+            className="shrink-0 px-4 sm:px-6 py-3 bg-bg/95 backdrop-blur-sm"
+            style={{ borderTop: "0.5px solid var(--line)" }}
+          >
+            <div
+              className="rounded-xl overflow-hidden"
+              style={{ border: "0.5px solid var(--line)" }}
+            >
+              <label htmlFor="gate-input" className="sr-only">
+                How do you know me?
+              </label>
+              <textarea
+                id="gate-input"
+                ref={gateTextareaRef}
+                value={gateInput}
+                onChange={(e) => setGateInput(e.target.value)}
+                onInput={handleGateTextareaInput}
+                onKeyDown={handleGateKeyDown}
+                placeholder="a follower, a friend, someone new..."
+                rows={2}
+                className="
+                  w-full resize-none bg-bg px-4 pt-3 pb-2
+                  text-[14px] text-ink placeholder:text-gray-2 leading-relaxed
+                  overflow-y-auto focus:outline-none
+                "
+                style={{ maxHeight: "120px" }}
+              />
+              {/* Bottom toolbar */}
+              <div
+                className="flex items-center justify-between px-3 py-2"
+                style={{ borderTop: "0.5px solid var(--line-2)" }}
+              >
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] text-gray-2 font-mono px-2 py-1 rounded-md"
+                    style={{ border: "0.5px solid var(--line)" }}>
+                    ⊕ Grounded mode
+                  </span>
+                </div>
+                <button
+                  onClick={() => void handleGateSubmit()}
+                  aria-label="Send"
+                  className="
+                    w-[34px] h-[34px] rounded-lg bg-green shrink-0
+                    flex items-center justify-center
+                    hover:bg-navy-soft transition-colors
+                    focus-visible:outline focus-visible:outline-2 focus-visible:outline-green focus-visible:outline-offset-2
+                  "
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M2 8h12M9 3.5l4.5 4.5L9 12.5"
+                      stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
-          <MessageList messages={messages} isTyping={isTyping} toolStatus={toolStatus} />
+          <Composer
+            onSend={(text) => void handleSendMessage(text)}
+            disabled={isTyping}
+            showChips={!hasSentMessage}
+          />
         )}
-      </main>
 
-      {/* ── DOCK ─────────────────────────────────────────────────────────── */}
-      {isGate ? (
-        <div
-          className="shrink-0 px-4 sm:px-6 py-3 bg-bg/95 backdrop-blur-sm"
-          style={{ borderTop: "0.5px solid var(--line)" }}
-        >
-          <div className="flex items-end gap-3">
-            <label htmlFor="gate-input" className="sr-only">
-              How do you know me?
-            </label>
-            <textarea
-              id="gate-input"
-              ref={gateTextareaRef}
-              value={gateInput}
-              onChange={(e) => setGateInput(e.target.value)}
-              onInput={handleGateTextareaInput}
-              onKeyDown={handleGateKeyDown}
-              placeholder="a follower, a friend, someone new..."
-              rows={1}
-              className="
-                flex-1 resize-none bg-bubble rounded-xl px-4 py-[11px]
-                text-[15px] text-ink placeholder:text-gray-2 leading-relaxed
-                overflow-y-auto focus:outline-none focus:ring-1 focus:ring-navy/50
-                transition-[box-shadow] motion-reduce:transition-none
-              "
-              style={{ maxHeight: "120px" }}
-            />
-            <button
-              onClick={() => void handleGateSubmit()}
-              aria-label="Send message"
-              className="
-                w-[50px] h-[50px] rounded-xl bg-navy shrink-0
-                flex items-center justify-center
-                hover:bg-navy-soft
-                transition-colors motion-reduce:transition-none
-                focus-visible:outline focus-visible:outline-2
-                focus-visible:outline-navy focus-visible:outline-offset-2
-              "
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                <path
-                  d="M3 9h12M10 4l5 5-5 5"
-                  stroke="white"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-      ) : (
-        <Composer
-          onSend={(text) => void handleSendMessage(text)}
-          disabled={isTyping}
-          showChips={!hasSentMessage}
-        />
-      )}
+      </div>
+
+      {/* ── RIGHT TRACE PANEL ─────────────────────────────────────────────────── */}
+      <TracePanel steps={traceSteps} currentRunLabel={currentRunLabel} />
 
     </div>
   );
