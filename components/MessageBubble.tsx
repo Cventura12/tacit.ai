@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import type { Message } from "@/lib/types";
 import { EmailProposalCard } from "./EmailProposalCard";
 import { TacitMark } from "./TacitMark";
+import { TraceDisclosure } from "./TraceDisclosure";
 
 const CLASSIFICATION_CHIP: Record<
   string,
@@ -68,6 +69,8 @@ export function MessageBubble({ message }: { message: Message }) {
         )}
 
         {proposal && <EmailProposalCard proposal={proposal} />}
+
+        {message.runId && <TraceDisclosure runId={message.runId} />}
         </div>
       </div>
     );

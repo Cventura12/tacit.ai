@@ -4,6 +4,39 @@ export type TraceStep = {
   status: "done" | "active";
 };
 
+// ─── Run trace detail ─────────────────────────────────────────────────────────
+
+export interface RetrievalTrace {
+  id: string;
+  doc_id: string;
+  doc_title: string;
+  page_number: number;
+  score: number;
+  returned: boolean;
+}
+
+export interface ToolRunDetail {
+  id: string;
+  tool_name: string;
+  input: Record<string, unknown>;
+  output_summary: string;
+  duration_ms: number;
+  success: boolean;
+  error: string | null;
+  sequence: number;
+  retrieval_traces: RetrievalTrace[];
+}
+
+export interface RunDetail {
+  id: string;
+  user_query: string;
+  duration_ms: number;
+  tool_count: number;
+  error: string | null;
+  created_at: string;
+  tool_runs: ToolRunDetail[];
+}
+
 // An entry in the sidebar "recent runs" list.
 export type RecentRun = {
   id: string;

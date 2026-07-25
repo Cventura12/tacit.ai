@@ -298,7 +298,7 @@ export default function ChatPage() {
               </div>
             </div>
           ) : (
-            <MessageList messages={messages} isTyping={isTyping} toolStatus={toolStatus} />
+            <MessageList messages={messages} isTyping={isTyping} toolStatus={toolStatus} traceSteps={traceSteps} />
           )}
         </main>
 
