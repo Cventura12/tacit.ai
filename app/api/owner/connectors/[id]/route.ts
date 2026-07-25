@@ -1,17 +1,21 @@
-import type { APIRoute } from "astro";
+import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import type { Database } from "@/lib/db";
 
-type ConnectorUpdate = Database["public"]["Tables"]["connectors"]["Update"];
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export const PATCH: APIRoute = async ({ request, params }) => {
-  const { id } = params;
+type ConnectorUpdate = Database["public"]["Tables"]["connectors"]["Update"];
+type RouteContext = { params: Promise<{ id: string }> };
+
+export async function PATCH(request: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return json({ error: "Invalid JSON" }, 400);
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const { enabled, lane } = body as Record<string, unknown>;
@@ -21,7 +25,7 @@ export const PATCH: APIRoute = async ({ request, params }) => {
   if (lane === "public" || lane === "owner") updates.lane = lane as string;
 
   if (Object.keys(updates).length === 0) {
-    return json({ error: "No valid fields to update" }, 400);
+    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
 
   updates.updated_at = new Date().toISOString();
@@ -30,7 +34,7 @@ export const PATCH: APIRoute = async ({ request, params }) => {
   const { data, error } = await db
     .from("connectors")
     .update(updates)
-    .eq("id", id!)
+    .eq("id", id)
     .select(
       "id,type,name,description,tool_names,enabled,lane,mcp_url,credential_masked,created_at"
     )
@@ -38,41 +42,34 @@ export const PATCH: APIRoute = async ({ request, params }) => {
 
   if (error || !data) {
     console.error("[owner/connectors] PATCH failed:", error);
-    return json({ error: "Not found or update failed" }, 404);
+    return NextResponse.json({ error: "Not found or update failed" }, { status: 404 });
   }
 
-  return json({ connector: data });
-};
+  return NextResponse.json({ connector: data });
+}
 
-export const DELETE: APIRoute = async ({ params }) => {
-  const { id } = params;
+export async function DELETE(_request: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   const db = getDb();
 
   const { data: existing } = await db
     .from("connectors")
     .select("type")
-    .eq("id", id!)
+    .eq("id", id)
     .single();
 
   if (!existing) {
-    return json({ error: "Not found" }, 404);
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (existing.type === "builtin") {
-    return json({ error: "Built-in connectors cannot be removed" }, 403);
+    return NextResponse.json({ error: "Built-in connectors cannot be removed" }, { status: 403 });
   }
 
-  const { error } = await db.from("connectors").delete().eq("id", id!);
+  const { error } = await db.from("connectors").delete().eq("id", id);
   if (error) {
     console.error("[owner/connectors] DELETE failed:", error);
-    return json({ error: "Delete failed" }, 500);
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 
-  return json({ ok: true });
-};
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+  return NextResponse.json({ ok: true });
 }

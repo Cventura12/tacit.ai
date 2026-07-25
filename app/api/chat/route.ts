@@ -1,4 +1,4 @@
-import type { APIRoute } from "astro";
+import { type NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { SYSTEM_PROMPT, OWNER_SYSTEM_PROMPT_EXTENSION } from "@/lib/knowledge";
 import { TOOL_REGISTRY } from "@/lib/tools/registry";
@@ -8,6 +8,9 @@ import { getEnabledToolNames, getEnabledMcpConnectors } from "@/lib/connectors";
 import { buildMcpTools } from "@/lib/mcp";
 import { checkRateLimit } from "@/lib/ratelimit";
 import { isDbConfigured, getDb } from "@/lib/db";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const MAX_MESSAGES = 50;
 const MAX_CONTENT_LEN = 4000;
@@ -320,34 +323,25 @@ async function runAgentLoop(
   }
 }
 
-export const POST: APIRoute = async ({ request, clientAddress }) => {
+export async function POST(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() ?? clientAddress ?? "unknown";
+  const ip = forwarded?.split(",")[0]?.trim() ?? "unknown";
 
   const allowed = await checkRateLimit(`${ip}:chat`, 60, 20);
   if (!allowed) {
-    return new Response(JSON.stringify({ error: "Too many requests." }), {
-      status: 429,
-      headers: { "Content-Type": "application/json" },
-    });
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON." }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
   const parsed = parseBody(body);
   if (!parsed) {
-    return new Response(JSON.stringify({ error: "Invalid request body." }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
   const { messages: rawMessages, sessionId } = parsed;
@@ -375,4 +369,4 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       Connection: "keep-alive",
     },
   });
-};
+}

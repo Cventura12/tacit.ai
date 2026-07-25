@@ -1,26 +1,29 @@
-import type { APIRoute } from "astro";
+import { type NextRequest, NextResponse } from "next/server";
 import { ingestPdf } from "@/lib/documents";
 import { logOwnerAction } from "@/lib/owner-actions";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const MAX_BYTES = 20 * 1024 * 1024;
 
-export const POST: APIRoute = async ({ request }) => {
+export async function POST(request: NextRequest) {
   let formData: FormData;
   try {
     formData = await request.formData();
   } catch {
-    return json({ error: "Invalid form data" }, 400);
+    return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return json({ error: "file field is required" }, 400);
+    return NextResponse.json({ error: "file field is required" }, { status: 400 });
   }
   if (file.type !== "application/pdf") {
-    return json({ error: "Only PDF files are supported" }, 415);
+    return NextResponse.json({ error: "Only PDF files are supported" }, { status: 415 });
   }
   if (file.size > MAX_BYTES) {
-    return json({ error: "File exceeds 20 MB limit" }, 413);
+    return NextResponse.json({ error: "File exceeds 20 MB limit" }, { status: 413 });
   }
 
   const docType = formData.get("doc_type");
@@ -34,17 +37,10 @@ export const POST: APIRoute = async ({ request }) => {
       buffer
     );
     void logOwnerAction("upload_document", { docId, pageCount, title });
-    return json({ ok: true, docId, pageCount, title }, 201);
+    return NextResponse.json({ ok: true, docId, pageCount, title }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
     console.error("[documents/upload]", message);
-    return json({ error: message }, 500);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-};
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }

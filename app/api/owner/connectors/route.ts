@@ -1,37 +1,40 @@
-import type { APIRoute } from "astro";
+import { type NextRequest, NextResponse } from "next/server";
 import { listConnectors } from "@/lib/connectors";
 import { encryptCredential, maskCredential } from "@/lib/crypto";
 import { probeMcpTools } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 
-export const GET: APIRoute = async () => {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
   try {
     const connectors = await listConnectors();
-    return json({ connectors });
+    return NextResponse.json({ connectors });
   } catch (err) {
     console.error("[owner/connectors] GET failed:", err);
-    return json({ error: "Failed to load connectors" }, 500);
+    return NextResponse.json({ error: "Failed to load connectors" }, { status: 500 });
   }
-};
+}
 
-export const POST: APIRoute = async ({ request }) => {
+export async function POST(request: NextRequest) {
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return json({ error: "Invalid JSON" }, 400);
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const { name, mcp_url, credential, lane } = body as Record<string, unknown>;
 
   if (typeof name !== "string" || !name.trim()) {
-    return json({ error: "name is required" }, 400);
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
   if (typeof mcp_url !== "string" || !mcp_url.trim()) {
-    return json({ error: "mcp_url is required" }, 400);
+    return NextResponse.json({ error: "mcp_url is required" }, { status: 400 });
   }
   if (lane !== "public" && lane !== "owner") {
-    return json({ error: "lane must be 'public' or 'owner'" }, 400);
+    return NextResponse.json({ error: "lane must be 'public' or 'owner'" }, { status: 400 });
   }
 
   let parsedUrl: URL;
@@ -39,7 +42,7 @@ export const POST: APIRoute = async ({ request }) => {
     parsedUrl = new URL(mcp_url.trim());
     if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error();
   } catch {
-    return json({ error: "mcp_url must be a valid http/https URL" }, 400);
+    return NextResponse.json({ error: "mcp_url must be a valid http/https URL" }, { status: 400 });
   }
 
   let toolNames: string[] = [];
@@ -48,7 +51,7 @@ export const POST: APIRoute = async ({ request }) => {
     toolNames = await probeMcpTools(parsedUrl.toString(), rawCredential);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    return json({ error: `Could not connect to MCP server: ${msg}` }, 422);
+    return NextResponse.json({ error: `Could not connect to MCP server: ${msg}` }, { status: 422 });
   }
 
   const rawCred = typeof credential === "string" && credential ? credential : null;
@@ -76,15 +79,8 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (dbErr || !data) {
     console.error("[owner/connectors] POST insert failed:", dbErr);
-    return json({ error: "Database error" }, 500);
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
 
-  return json({ connector: data }, 201);
-};
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+  return NextResponse.json({ connector: data }, { status: 201 });
 }

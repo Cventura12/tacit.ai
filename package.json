@@ -4,21 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "start": "node ./dist/server/entry.mjs",
-    "preview": "astro preview"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.107.0",
-    "@astrojs/node": "^9.0.0",
-    "@astrojs/react": "^4.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@napi-rs/canvas": "^0.1.80",
     "@supabase/supabase-js": "^2.110.0",
-    "astro": "^5.0.0",
     "jose": "^6.2.3",
     "motion": "^11.0.0",
+    "next": "^16",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.4.296",
     "react": "^19.2.4",
@@ -27,7 +24,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
