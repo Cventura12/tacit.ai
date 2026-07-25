@@ -2,7 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { TextItem, PageViewport } from "pdfjs-dist";
+import type { PageViewport } from "pdfjs-dist";
+
+// pdfjs-dist v5 no longer exports TextItem from the package root; define the
+// full shape so the type predicate on getTextContent().items is compatible.
+type TextItem = {
+  str: string;
+  dir: string;
+  transform: number[];
+  width: number;
+  height: number;
+  fontName: string;
+  hasEOL: boolean;
+};
 
 interface PdfPanelProps {
   open: boolean;
@@ -127,7 +139,7 @@ export function PdfPanel({ open, onClose, docId, page, title, highlight }: PdfPa
         const ctx = canvas.getContext("2d")!;
 
         // 6. Render page content.
-        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+        await pdfPage.render({ canvasContext: ctx, viewport, canvas }).promise;
         if (cancelled) return;
 
         // 7. Find and highlight matching text span.
