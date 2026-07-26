@@ -35,6 +35,31 @@ const IcoShield = () => (
   </svg>
 );
 
+const IcoWarn = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+    <path d="M6 1.5L1 10.5h10L6 1.5z" stroke="#f59e0b" strokeWidth="1.1" strokeLinejoin="round" />
+    <path d="M6 5v2.5" stroke="#f59e0b" strokeWidth="1.2" strokeLinecap="round" />
+    <circle cx="6" cy="9" r="0.6" fill="#f59e0b" />
+  </svg>
+);
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function extractDomain(address: string): string {
+  const inner = address.match(/<([^>]+)>/)?.[1] ?? address;
+  return inner.match(/@([\w.-]+)/)?.[1]?.toLowerCase() ?? "";
+}
+
+function fmtSentAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 // ── Classification badge ───────────────────────────────────────────────────────
 
 const BADGE: Record<
@@ -48,21 +73,40 @@ const BADGE: Record<
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+type CardState = "pending" | "confirming" | "sending" | "sent" | "skipped";
 type PanelDoc = { docId: string; page: number; title: string; highlight?: string };
 
 // ── EmailProposalCard ──────────────────────────────────────────────────────────
 
 export function EmailProposalCard({ proposal }: { proposal: EmailProposal }) {
   const [draft, setDraft] = useState(proposal.draft_reply ?? "");
-  const [cardStatus, setCardStatus] = useState<"pending" | "approved" | "skipped">("pending");
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
+  const [cardState, setCardState] = useState<CardState>("pending");
   const [editing, setEditing] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelDoc, setPanelDoc] = useState<PanelDoc | null>(null);
 
+  // Confirm-step state
+  const [recipientField, setRecipientField] = useState(proposal.recipient ?? "");
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(
+    new Set(proposal.attachment_doc_ids ?? [])
+  );
+  const [sendError, setSendError] = useState("");
+  const [sentAt, setSentAt] = useState("");
+
   const badge = BADGE[proposal.classification];
   const sourceCount = proposal.matched_documents.length;
+
+  // Attachment options — pair doc_ids with titles from suggested_attachments
+  const attachmentOptions = (proposal.attachment_doc_ids ?? []).map((id, i) => ({
+    docId: id,
+    title: proposal.suggested_attachments[i] ?? id,
+  }));
+
+  // Domain warning: fires when the user edits the recipient to a different domain
+  const originalDomain = extractDomain(proposal.recipient ?? "");
+  const currentDomain = extractDomain(recipientField);
+  const domainMismatch =
+    !!originalDomain && !!currentDomain && currentDomain !== originalDomain;
 
   function openCitation(doc: EmailProposal["matched_documents"][number]) {
     if (!doc.doc_id) return;
@@ -70,36 +114,70 @@ export function EmailProposalCard({ proposal }: { proposal: EmailProposal }) {
     setPanelOpen(true);
   }
 
-  async function handleApprove() {
-    setLoading(true);
-    setErr("");
+  function toggleDoc(docId: string) {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId); else next.add(docId);
+      return next;
+    });
+  }
+
+  async function handleConfirmSend() {
+    setSendError("");
+    setCardState("sending");
+
     try {
-      const res = await fetch("/api/owner/email/approve", {
+      const res = await fetch("/api/owner/email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...proposal, draft_reply: draft }),
+        body: JSON.stringify({
+          recipient: recipientField.trim(),
+          subject: proposal.reply_subject ?? "",
+          body: draft,
+          thread_id: proposal.thread_id,
+          in_reply_to_id: proposal.in_reply_to_id,
+          attachment_doc_ids: Array.from(selectedDocIds),
+        }),
       });
-      if (!res.ok) throw new Error("Request failed");
-      setCardStatus("approved");
+
+      const data = await res.json() as { ok?: boolean; error?: string; sent_at?: string };
+
+      if (!res.ok || !data.ok) {
+        setSendError(data.error ?? "Send failed — try again");
+        setCardState("confirming");
+        return;
+      }
+
+      setSentAt(data.sent_at ?? new Date().toISOString());
+      setCardState("sent");
     } catch {
-      setErr("couldn't log approval — try again");
-    } finally {
-      setLoading(false);
+      setSendError("Network error — try again");
+      setCardState("confirming");
     }
   }
 
-  if (cardStatus === "approved") {
+  // ── Sent state ────────────────────────────────────────────────────────────────
+
+  if (cardState === "sent") {
     return (
       <div
-        className="message-animate rounded-xl px-4 py-3 text-[13px] text-gray-1"
+        className="message-animate rounded-xl px-4 py-3"
         style={{ border: "0.5px solid var(--line)", background: "var(--bubble)" }}
       >
-        approved — logged to owner actions. no email sent.
+        <div className="flex items-center gap-2 mb-[3px]">
+          <span style={{ color: "var(--green)" }}><IcoCheck /></span>
+          <p className="text-[13px] font-medium text-ink">Sent</p>
+        </div>
+        <p className="text-[12px] text-gray-2">
+          to {recipientField}{sentAt ? ` · ${fmtSentAt(sentAt)}` : ""}
+        </p>
       </div>
     );
   }
 
-  if (cardStatus === "skipped") {
+  // ── Skipped state ─────────────────────────────────────────────────────────────
+
+  if (cardState === "skipped") {
     return (
       <div
         className="message-animate rounded-xl px-4 py-3 text-[13px] text-gray-1"
@@ -109,6 +187,151 @@ export function EmailProposalCard({ proposal }: { proposal: EmailProposal }) {
       </div>
     );
   }
+
+  // ── Confirm / sending state ───────────────────────────────────────────────────
+
+  if (cardState === "confirming" || cardState === "sending") {
+    const isSending = cardState === "sending";
+
+    return (
+      <div
+        className="message-animate w-full rounded-xl overflow-hidden"
+        style={{ border: "0.5px solid var(--line)", background: "var(--bg)" }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center gap-2.5 px-4 py-3"
+          style={{ borderBottom: "0.5px solid var(--line)" }}
+        >
+          <span className="text-gray-2 shrink-0"><IcoMail /></span>
+          <p className="flex-1 text-[13px] font-medium text-ink">Review before sending</p>
+          <span className="text-gray-3 shrink-0"><IcoLock /></span>
+        </div>
+
+        <div className="px-4 py-4 flex flex-col gap-4">
+
+          {/* Envelope fields */}
+          <div className="flex flex-col gap-2">
+            {/* To */}
+            <div className="flex items-start gap-3">
+              <span
+                className="font-mono text-[10px] uppercase tracking-[0.08em] shrink-0 mt-[5px]"
+                style={{ color: "var(--gray-3)", width: "3rem" }}
+              >
+                To
+              </span>
+              <div className="flex-1 min-w-0">
+                <input
+                  type="email"
+                  value={recipientField}
+                  onChange={(e) => setRecipientField(e.target.value)}
+                  disabled={isSending}
+                  className="w-full text-[13px] text-ink bg-transparent focus:outline-none"
+                  style={{
+                    border: "0.5px solid var(--line)",
+                    borderRadius: "6px",
+                    padding: "5px 10px",
+                    background: "var(--bubble)",
+                  }}
+                />
+                {domainMismatch && (
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <IcoWarn />
+                    <span className="text-[11px]" style={{ color: "#b45309" }}>
+                      new recipient — double check this address
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Subject */}
+            <div className="flex items-center gap-3">
+              <span
+                className="font-mono text-[10px] uppercase tracking-[0.08em] shrink-0"
+                style={{ color: "var(--gray-3)", width: "3rem" }}
+              >
+                Subj
+              </span>
+              <p className="text-[13px] text-gray-1 truncate">
+                {proposal.reply_subject || "(no subject)"}
+              </p>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div>
+            <p className="font-mono text-[9px] tracking-[0.12em] uppercase text-gray-2 mb-1.5">
+              BODY
+            </p>
+            <div
+              className="rounded-lg px-3 py-2.5 text-[12px] text-ink leading-relaxed overflow-y-auto"
+              style={{
+                background: "var(--bubble)",
+                border: "0.5px solid var(--line-2)",
+                maxHeight: "140px",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {draft || "(no body)"}
+            </div>
+          </div>
+
+          {/* Attachments */}
+          {attachmentOptions.length > 0 && (
+            <div>
+              <p className="font-mono text-[9px] tracking-[0.12em] uppercase text-gray-2 mb-1.5">
+                ATTACHMENTS
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {attachmentOptions.map(({ docId, title }) => (
+                  <label key={docId} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedDocIds.has(docId)}
+                      onChange={() => toggleDoc(docId)}
+                      disabled={isSending}
+                      className="accent-green"
+                    />
+                    <span className="text-[12px] text-gray-1">{title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Error */}
+          {sendError && (
+            <p className="text-[12px]" style={{ color: "#dc2626" }}>{sendError}</p>
+          )}
+
+        </div>
+
+        {/* Footer */}
+        <div
+          className="flex items-center gap-3 px-4 py-3"
+          style={{ borderTop: "0.5px solid var(--line)" }}
+        >
+          <button
+            onClick={() => { setSendError(""); setCardState("pending"); }}
+            disabled={isSending}
+            className="text-[13px] text-gray-2 hover:text-ink transition-colors disabled:opacity-40"
+          >
+            ← Back
+          </button>
+          <button
+            onClick={() => void handleConfirmSend()}
+            disabled={isSending || !recipientField.trim()}
+            className="ml-auto px-4 py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSending ? "Sending…" : "Confirm & send →"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Pending state (full review card) ─────────────────────────────────────────
 
   return (
     <div
@@ -312,23 +535,28 @@ export function EmailProposalCard({ proposal }: { proposal: EmailProposal }) {
         style={{ borderTop: "0.5px solid var(--line)" }}
       >
         <button
-          onClick={() => void handleApprove()}
-          disabled={loading}
-          className="px-4 py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => setCardState("confirming")}
+          className="px-4 py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors"
         >
-          {loading ? "Logging…" : "Approve draft"}
+          Approve draft
         </button>
         <button
           onClick={() => setEditing((v) => !v)}
-          disabled={loading}
-          className="text-[13px] text-gray-1 hover:text-ink transition-colors disabled:opacity-50"
+          className="text-[13px] text-gray-1 hover:text-ink transition-colors"
         >
           {editing ? "Done editing" : "Edit"}
         </button>
-        {err && <p className="text-[12px] text-red-600">{err}</p>}
-        <p className="ml-auto text-[11px] text-gray-3 shrink-0">
-          Approval logs only · sending not connected
-        </p>
+        <button
+          onClick={() => setCardState("skipped")}
+          className="text-[13px] text-gray-3 hover:text-gray-1 transition-colors"
+        >
+          Skip
+        </button>
+        {proposal.recipient && (
+          <p className="ml-auto text-[11px] text-gray-3 shrink-0 truncate max-w-[160px]">
+            → {proposal.recipient}
+          </p>
+        )}
       </div>
 
       {/* PDF viewer panel — portaled to document.body */}

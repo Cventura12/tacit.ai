@@ -1,12 +1,16 @@
-// Gmail read-only integration — server-side only.
+// Gmail integration — server-side only.
 // Uses plain fetch to the Gmail REST API. No googleapis SDK, no new packages.
-// SCOPE: gmail.readonly — this file must never send, delete, or modify mail.
+// SCOPES: gmail.readonly (read inbox) + gmail.send (send on behalf of owner).
 
+import { randomBytes } from "crypto";
 import { encryptCredential, decryptCredential, maskCredential } from "@/lib/crypto";
 import { getDb, isDbConfigured } from "@/lib/db";
 
 export const GMAIL_CONNECTOR_ID = "00000000-0000-0000-0000-000000000003";
-export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+// Both scopes space-separated — OAuth consent must include send to allow sending.
+export const GMAIL_SCOPE =
+  "https://www.googleapis.com/auth/gmail.readonly " +
+  "https://www.googleapis.com/auth/gmail.send";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -104,8 +108,8 @@ export async function saveRefreshTokenFromCode(code: string): Promise<void> {
     {
       id: GMAIL_CONNECTOR_ID,
       type: "builtin",
-      name: "Gmail (read-only)",
-      description: "Read your Gmail inbox as owner. Never sends, deletes, or modifies mail.",
+      name: "Gmail (read + send)",
+      description: "Read your Gmail inbox and send owner-approved draft replies.",
       tool_names: ["read_gmail"],
       enabled: true,
       lane: "owner",
@@ -163,6 +167,114 @@ async function getAccessToken(): Promise<string> {
   }
 
   return body.access_token;
+}
+
+// ─── Send email ──────────────────────────────────────────────────────────────
+
+export interface SendGmailParams {
+  to: string;
+  subject: string;
+  body: string;
+  thread_id?: string;
+  in_reply_to_id?: string;
+  attachments?: Array<{ filename: string; content: Buffer; mimeType: string }>;
+}
+
+export interface SendGmailResult {
+  message_id: string;
+  thread_id: string;
+}
+
+export async function sendGmail(params: SendGmailParams): Promise<SendGmailResult> {
+  const token = await getAccessToken();
+  const raw = buildMimeRaw(params);
+
+  const payload: Record<string, string> = { raw };
+  if (params.thread_id) payload.threadId = params.thread_id;
+
+  const res = await loggedFetch("messages.send", `${GMAIL_API}/users/me/messages/send`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) throw new Error(`Gmail send failed (${res.status})`);
+
+  const result = (await res.json()) as { id: string; threadId: string };
+  return { message_id: result.id, thread_id: result.threadId };
+}
+
+// RFC 2045 §6.8 — standard base64 in 76-char lines (for MIME body parts).
+function base64Lines(buf: Buffer): string {
+  const b64 = buf.toString("base64");
+  const chunks: string[] = [];
+  for (let i = 0; i < b64.length; i += 76) chunks.push(b64.slice(i, i + 76));
+  return chunks.join("\r\n");
+}
+
+// RFC 2047 Q-encoding for non-ASCII subject lines.
+function encodeSubject(subject: string): string {
+  if (/^[\x20-\x7E]*$/.test(subject)) return subject;
+  return `=?UTF-8?B?${Buffer.from(subject, "utf-8").toString("base64")}?=`;
+}
+
+function buildMimeRaw(params: SendGmailParams): string {
+  const { to, subject, body, in_reply_to_id, attachments = [] } = params;
+  const CRLF = "\r\n";
+  const boundary = `tacit_${randomBytes(10).toString("hex")}`;
+
+  const hdr: string[] = [
+    `To: ${to}`,
+    `Subject: ${encodeSubject(subject)}`,
+    "MIME-Version: 1.0",
+  ];
+
+  if (in_reply_to_id) {
+    const mid = in_reply_to_id.startsWith("<") ? in_reply_to_id : `<${in_reply_to_id}>`;
+    hdr.push(`In-Reply-To: ${mid}`);
+    hdr.push(`References: ${mid}`);
+  }
+
+  let mime: string;
+
+  if (attachments.length === 0) {
+    hdr.push("Content-Type: text/plain; charset=UTF-8");
+    hdr.push("Content-Transfer-Encoding: base64");
+    mime = hdr.join(CRLF) + CRLF + CRLF + base64Lines(Buffer.from(body, "utf-8"));
+  } else {
+    hdr.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+    const parts: string[] = [
+      `--${boundary}${CRLF}` +
+        `Content-Type: text/plain; charset=UTF-8${CRLF}` +
+        `Content-Transfer-Encoding: base64${CRLF}` +
+        CRLF +
+        base64Lines(Buffer.from(body, "utf-8")),
+    ];
+
+    for (const att of attachments) {
+      const safe = att.filename.replace(/[^\w.\- ]/g, "_");
+      parts.push(
+        `--${boundary}${CRLF}` +
+          `Content-Type: ${att.mimeType}; name="${safe}"${CRLF}` +
+          `Content-Transfer-Encoding: base64${CRLF}` +
+          `Content-Disposition: attachment; filename="${safe}"${CRLF}` +
+          CRLF +
+          base64Lines(att.content)
+      );
+    }
+
+    mime =
+      hdr.join(CRLF) + CRLF + CRLF +
+      parts.join(CRLF) + CRLF +
+      `--${boundary}--`;
+  }
+
+  return Buffer.from(mime, "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
 // ─── Read recent messages ─────────────────────────────────────────────────────

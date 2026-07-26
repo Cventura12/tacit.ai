@@ -55,8 +55,8 @@ const BUILTIN_SEEDS = [
   {
     id: "00000000-0000-0000-0000-000000000003",
     type: "builtin" as const,
-    name: "Gmail (read-only)",
-    description: "Read your Gmail inbox as owner. Never sends, deletes, or modifies mail.",
+    name: "Gmail (read + send)",
+    description: "Read your Gmail inbox and send owner-approved draft replies.",
     tool_names: ["read_gmail"],
     enabled: false,
     lane: "owner" as Lane,

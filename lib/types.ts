@@ -52,6 +52,12 @@ export interface EmailProposal {
   matched_documents: { doc_id?: string; title: string; page: number; snippet: string; highlight?: string }[];
   draft_reply: string | null;
   suggested_attachments: string[];
+  // Send envelope — populated by handle_email from the original email's headers.
+  recipient?: string;          // "To" address for the reply (original sender)
+  reply_subject?: string;      // "Re: " + original subject
+  thread_id?: string;          // Gmail threadId for correct threading
+  in_reply_to_id?: string;     // Gmail messageId for In-Reply-To header
+  attachment_doc_ids?: string[]; // Supabase doc UUIDs matching suggested_attachments[]
   needs_approval: true;
 }
 

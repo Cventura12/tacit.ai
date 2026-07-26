@@ -18,22 +18,21 @@ async function triageEmail(
     messages: [
       {
         role: "user",
-        content: `You are triaging email for Caleb Ventura. His files include USCIS immigration documents (I-360 SIJS approval, I-765 Employment Authorization), enrollment paperwork, and related notices.
+        content: `You are triaging email for Caleb Ventura. Your default is to draft a reply — refusals waste his time.
 
-Classify as "actionable" when the email:
-- Requests documents he may already have (proof of lawful presence, work authorization, EAD, USCIS notices, enrollment records, identity documents)
-- Asks a question answerable by referencing his documents
-- Needs a reply but no binding commitment from him
+DEFAULT: classify as "actionable" unless a specific exception below applies. This covers any email from a real person asking any question or requesting any reply — about his project, documents, schedule, preferences, status, or anything else. Topic doesn't matter. The draft step handles grounding; triage only decides whether to attempt a draft.
 
-Classify as "needs_caleb" ONLY when the email:
-- Requires him to accept or decline an offer
-- Involves signing something, paying money, or making a legal commitment
-- Asks for a personal decision or opinion only he can give
+Classify as "needs_caleb" ONLY when the email requires a genuine decision with real stakes that only he can make:
+- Accepting or declining an offer (job, contract, enrollment slot, proposal)
+- Committing money or signing something with legal consequence
+- Choosing between meaningful options where the answer isn't obvious from context (e.g. "which of these two job offers do you prefer?")
+- A personal opinion or judgment call no one else can make for him
+NOTE: "which email should I use for you?" is NOT needs_caleb if context makes the answer obvious — draft it. When in doubt, choose actionable.
 
-Classify as "ignore" when:
-- Spam, marketing, automated notification, no reply needed
-
-CRITICAL: Emails touching immigration status, lawful presence, or work authorization are ACTIONABLE — they can be answered by searching his documents. Do NOT classify them as "needs_caleb" just because the topic is sensitive. The draft step enforces never-assert-without-document; triage only decides whether to act.
+Classify as "ignore" ONLY when:
+- True spam, mass marketing, or newsletters
+- Fully automated no-reply notification (no human waiting on a response)
+A real person asking a real question is NEVER "ignore."
 
 Email:
 From: ${sender || "(unknown)"}
@@ -291,6 +290,14 @@ export const handle_email: ToolDefinition = {
         type: "string",
         description: "Email subject line (optional).",
       },
+      gmail_thread_id: {
+        type: "string",
+        description: "Gmail threadId of the email being replied to (optional — enables correct threading in Gmail).",
+      },
+      gmail_message_id: {
+        type: "string",
+        description: "Gmail messageId of the specific message being replied to (optional — sets In-Reply-To header).",
+      },
     },
     required: ["email_text"],
   },
@@ -302,6 +309,8 @@ export const handle_email: ToolDefinition = {
 
     const sender = typeof input.sender === "string" ? input.sender.trim() : "";
     const subject = typeof input.subject === "string" ? input.subject.trim() : "";
+    const gmailThreadId = typeof input.gmail_thread_id === "string" ? input.gmail_thread_id.trim() : undefined;
+    const gmailMessageId = typeof input.gmail_message_id === "string" ? input.gmail_message_id.trim() : undefined;
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -336,12 +345,21 @@ export const handle_email: ToolDefinition = {
       return true;
     });
 
+    // Build the reply subject: prepend "Re: " if not already present.
+    const replySubject =
+      subject && !/^re:/i.test(subject.trim()) ? `Re: ${subject}` : subject;
+
     const proposal: EmailProposal = {
       classification,
       reason,
       matched_documents: dedupedDocs,
       draft_reply: draftReply,
       suggested_attachments: [...seenTitles],
+      recipient: sender || undefined,
+      reply_subject: replySubject || undefined,
+      thread_id: gmailThreadId,
+      in_reply_to_id: gmailMessageId,
+      attachment_doc_ids: dedupedDocs.map((d) => d.doc_id).filter((id): id is string => !!id),
       needs_approval: true,
     };
 
