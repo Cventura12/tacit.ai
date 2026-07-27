@@ -1,5 +1,6 @@
 "use client";
 
+import { SignOutButton } from "@clerk/nextjs";
 import type { RecentRun } from "@/lib/types";
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -192,7 +193,7 @@ export function Sidebar({ recentRuns, onNewRequest }: SidebarProps) {
           >
             <span className="text-white text-[9px] font-medium tracking-wide">CV</span>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[11px] font-medium leading-tight truncate" style={{ color: "var(--forest-text)" }}>
               Caleb Ventura
             </p>
@@ -200,6 +201,19 @@ export function Sidebar({ recentRuns, onNewRequest }: SidebarProps) {
               Owner · single user
             </p>
           </div>
+          <SignOutButton>
+            <button
+              title="Sign out"
+              className="shrink-0 rounded p-1 transition-opacity hover:opacity-70"
+              style={{ color: "var(--forest-muted)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M5 2H2.5A.5.5 0 002 2.5v9a.5.5 0 00.5.5H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                <path d="M9.5 10L12 7l-2.5-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M12 7H5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </SignOutButton>
         </div>
       </div>
     </aside>
