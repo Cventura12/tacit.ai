@@ -7,6 +7,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { GmailChannel } from "@/lib/relevance/channels/gmail";
 import { relevanceFilter } from "@/lib/relevance/filter";
 import type { FilteredMessage } from "@/lib/relevance/types";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ function shape(r: FilteredMessage) {
 }
 
 export async function POST(request: NextRequest) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

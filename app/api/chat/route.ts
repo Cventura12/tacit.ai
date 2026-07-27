@@ -8,6 +8,7 @@ import { getEnabledToolNames, getEnabledMcpConnectors } from "@/lib/connectors";
 import { buildMcpTools } from "@/lib/mcp";
 import { checkRateLimit } from "@/lib/ratelimit";
 import { isDbConfigured, getDb } from "@/lib/db";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -324,6 +325,9 @@ async function runAgentLoop(
 }
 
 export async function POST(request: NextRequest) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
+
   const forwarded = request.headers.get("x-forwarded-for");
   const ip = forwarded?.split(",")[0]?.trim() ?? "unknown";
 

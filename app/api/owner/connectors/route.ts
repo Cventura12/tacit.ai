@@ -3,11 +3,14 @@ import { listConnectors } from "@/lib/connectors";
 import { encryptCredential, maskCredential } from "@/lib/crypto";
 import { probeMcpTools } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   try {
     const connectors = await listConnectors();
     return NextResponse.json({ connectors });
@@ -18,6 +21,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   let body: unknown;
   try {
     body = await request.json();

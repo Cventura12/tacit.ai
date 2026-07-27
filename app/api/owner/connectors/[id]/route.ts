@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import type { Database } from "@/lib/db";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,8 @@ type ConnectorUpdate = Database["public"]["Tables"]["connectors"]["Update"];
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   const { id } = await params;
 
   let body: unknown;
@@ -49,6 +52,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, { params }: RouteContext) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   const { id } = await params;
   const db = getDb();
 

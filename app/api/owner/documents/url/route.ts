@@ -1,10 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDocumentUrl } from "@/lib/documents";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   const { searchParams } = new URL(request.url);
   const docId = searchParams.get("docId");
   const page = parseInt(searchParams.get("page") ?? "1", 10);

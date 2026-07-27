@@ -1,10 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { logOwnerAction } from "@/lib/owner-actions";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   let body: unknown;
   try {
     body = await request.json();

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ingestPdf } from "@/lib/documents";
 import { logOwnerAction } from "@/lib/owner-actions";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 const MAX_BYTES = 20 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   let formData: FormData;
   try {
     formData = await request.formData();

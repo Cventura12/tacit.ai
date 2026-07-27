@@ -1,12 +1,21 @@
-// Auth removed — this app is local-only (127.0.0.1), no public access.
-// Middleware is a no-op; the matcher is empty so it never runs.
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-import { NextResponse } from "next/server";
+// Only the sign-in flow is public; everything else requires authentication.
+const isPublic = createRouteMatcher(["/sign-in(.*)"]);
 
-export function proxy() {
-  return NextResponse.next();
-}
+// Next.js 16 uses proxy.ts (not middleware.ts) with a named "proxy" export.
+export const proxy = clerkMiddleware(async (auth, req) => {
+  if (!isPublic(req)) {
+    // Redirects unauthenticated browser requests to /sign-in.
+    // API routes that reach a handler are also guarded by requireOwner()
+    // which returns a clean 401/403 JSON response instead of a redirect.
+    await auth.protect();
+  }
+});
 
 export const config = {
-  matcher: [],
+  matcher: [
+    // Run on all paths except Next.js internals and static assets.
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };

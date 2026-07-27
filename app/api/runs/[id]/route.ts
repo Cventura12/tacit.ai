@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, isDbConfigured } from "@/lib/db";
 import type { RunDetail, ToolRunDetail, RetrievalTrace } from "@/lib/types";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: RouteContext) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   const { id } = await params;
 
   if (!isDbConfigured()) {

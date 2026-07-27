@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { saveRefreshTokenFromCode } from "@/lib/gmail";
 import { logOwnerAction } from "@/lib/owner-actions";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 const GMAIL_OAUTH_STATE_COOKIE = "gmail_oauth_state";
 
 export async function GET(request: NextRequest) {
+  const check = await requireOwner();
+  if (!check.ok) return check.response;
   const url = new URL(request.url);
   const error = url.searchParams.get("error");
   const code = url.searchParams.get("code");

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -37,13 +38,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${fraunces.variable} ${inter.variable} h-full antialiased`}
-    >
-      <body className="h-full bg-bg text-ink font-sans overflow-hidden">
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html
+        lang="en"
+        className={`${fraunces.variable} ${inter.variable} h-full antialiased`}
+      >
+        <body className="h-full bg-bg text-ink font-sans overflow-hidden">
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
