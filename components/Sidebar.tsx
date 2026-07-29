@@ -49,7 +49,7 @@ const TacitLogo = () => (
     aria-labelledby="tacit-logo-title tacit-logo-description"
   >
     <title id="tacit-logo-title">Tacit</title>
-    <desc id="tacit-logo-description">Tacit Local Evidence Agent logo</desc>
+    <desc id="tacit-logo-description">Tacit Evidence Agent logo</desc>
     <rect width="1600" height="500" fill="#F8F6EF" />
     <g transform="translate(120 90)">
       <rect width="320" height="320" rx="78" fill="#08261A" />
@@ -62,7 +62,7 @@ const TacitLogo = () => (
     <g transform="translate(525 164)">
       <text x="0" y="92" fill="#08261A" fontFamily="Inter, Arial, sans-serif" fontSize="126" fontWeight="650" letterSpacing="22">TACIT</text>
       <line x1="4" y1="142" x2="664" y2="142" stroke="#BFC7BE" strokeWidth="2" />
-      <text x="4" y="194" fill="#537064" fontFamily="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fontSize="28" fontWeight="600" letterSpacing="8">LOCAL EVIDENCE AGENT</text>
+      <text x="4" y="194" fill="#537064" fontFamily="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fontSize="28" fontWeight="600" letterSpacing="8">EVIDENCE AGENT</text>
     </g>
   </svg>
 );
@@ -199,10 +199,10 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
           />
           <div className="min-w-0">
             <p className="text-[11px] font-medium leading-tight truncate" style={{ color: "var(--forest-text)" }}>
-              Local machine
+              Cloud
             </p>
             <p className="text-[10px] leading-tight" style={{ color: "var(--forest-muted)" }}>
-              database and files available
+              database and storage online
             </p>
           </div>
         </div>

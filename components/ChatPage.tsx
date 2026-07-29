@@ -259,7 +259,7 @@ export default function ChatPage() {
               <div className="flex items-center gap-[5px]">
                 <span className="w-[5px] h-[5px] rounded-full bg-green shrink-0" aria-hidden="true" />
                 <span className="text-[11px] text-gray-2 leading-none">
-                  {isGate ? "local evidence agent" : "local run"}
+                  {isGate ? "evidence agent" : "active run"}
                 </span>
               </div>
             </div>
@@ -272,7 +272,7 @@ export default function ChatPage() {
             >
               <span className="w-[6px] h-[6px] rounded-full bg-green shrink-0" />
               <span className="font-mono text-[10px] text-gray-1 uppercase tracking-[0.1em]">
-                LOCAL RUN
+                ACTIVE
               </span>
             </div>
           )}

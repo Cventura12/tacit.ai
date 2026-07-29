@@ -75,13 +75,13 @@ export function TracePanel({ steps, currentRunLabel }: TracePanelProps) {
   const contextItems = [
     {
       label: "Document index",
-      detail: "local full-text search",
+      detail: "full-text search",
       active: true,
       icon: <IcoDoc />,
     },
     {
-      label: "Local storage",
-      detail: "files stay on this machine",
+      label: "Document storage",
+      detail: "documents stored privately",
       active: true,
       icon: <IcoStorage />,
     },
@@ -137,7 +137,7 @@ export function TracePanel({ steps, currentRunLabel }: TracePanelProps) {
             className="text-[11px] mt-[6px] leading-relaxed"
             style={{ color: "var(--forest-muted)" }}
           >
-            Candidate pages, selected evidence, and tool calls are logged locally.
+            Candidate pages, selected evidence, and tool calls are logged per run.
           </p>
         </div>
       </div>
