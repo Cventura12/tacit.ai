@@ -169,7 +169,7 @@ export function Composer({ onSend, disabled, showChips }: Props) {
                 <path d="M5.5 1v9M1 5.5h9" stroke="var(--green)" strokeWidth="0.8" strokeOpacity="0.5" />
               </svg>
               <span
-                className="text-[11px] font-medium"
+                className="hidden sm:inline text-[11px] font-medium"
                 style={{ color: "var(--green)" }}
               >
                 Grounded mode

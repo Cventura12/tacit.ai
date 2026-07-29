@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, HamburgerButton } from "@/components/Sidebar";
 import { EmailProposalCard } from "@/components/EmailProposalCard";
 import type { EmailProposal } from "@/lib/types";
 
@@ -219,10 +219,13 @@ export function InboxView() {
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
         <div
-          className="sticky top-0 z-10 flex items-center justify-between px-8 py-5"
+          className="sticky top-0 z-10 flex items-center justify-between px-4 lg:px-8 py-5"
           style={{ borderBottom: "0.5px solid var(--line)", background: "var(--bg)" }}
         >
-          <h1 className="text-[17px] font-semibold text-ink">Inbox</h1>
+          <div className="flex items-center gap-2">
+            <HamburgerButton />
+            <h1 className="text-[17px] font-semibold text-ink">Inbox</h1>
+          </div>
           <div className="flex items-center gap-3">
             {checkMsg && (
               <span className="text-[12px]" style={{ color: "var(--gray-2)" }}>
@@ -245,7 +248,7 @@ export function InboxView() {
         </div>
 
         {/* Content */}
-        <div className="px-8 py-6 max-w-3xl">
+        <div className="px-4 lg:px-8 py-6 max-w-3xl">
           {loading ? (
             <p className="text-[13px]" style={{ color: "var(--gray-2)" }}>Loading…</p>
           ) : error ? (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, HamburgerButton } from "@/components/Sidebar";
 
 const GMAIL_CONNECTOR_ID = "00000000-0000-0000-0000-000000000003";
 
@@ -136,7 +136,7 @@ function AddConnectorForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-[11px] font-medium mb-1" style={{ color: "var(--gray-2)" }}>
             Name
@@ -309,10 +309,13 @@ export function ConnectionsView() {
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
         <div
-          className="sticky top-0 z-10 flex items-center justify-between px-8 py-5"
+          className="sticky top-0 z-10 flex items-center justify-between px-4 lg:px-8 py-5"
           style={{ borderBottom: "0.5px solid var(--line)", background: "var(--bg)" }}
         >
-          <h1 className="text-[17px] font-semibold text-ink">Connections</h1>
+          <div className="flex items-center gap-2">
+            <HamburgerButton />
+            <h1 className="text-[17px] font-semibold text-ink">Connections</h1>
+          </div>
           {!showAddForm && (
             <button
               onClick={() => setShowAddForm(true)}
@@ -330,7 +333,7 @@ export function ConnectionsView() {
         </div>
 
         {/* Content */}
-        <div className="px-8 py-6 max-w-2xl flex flex-col gap-8">
+        <div className="px-4 lg:px-8 py-6 max-w-2xl flex flex-col gap-8">
           {loading ? (
             <p className="text-[13px]" style={{ color: "var(--gray-2)" }}>Loading…</p>
           ) : (

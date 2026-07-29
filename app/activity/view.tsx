@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, HamburgerButton } from "@/components/Sidebar";
 
 interface AgentRun {
   id: string;
@@ -85,7 +85,7 @@ function RunRow({ run, isFirst }: { run: AgentRun; isFirst?: boolean }) {
         <p className="flex-1 text-[13px] text-ink truncate text-left">{run.user_query}</p>
 
         {/* Meta */}
-        <span className="text-[11px] font-mono shrink-0" style={{ color: "var(--gray-3)" }}>
+        <span className="hidden sm:inline text-[11px] font-mono shrink-0" style={{ color: "var(--gray-3)" }}>
           {run.tool_count}T
         </span>
         <span className="text-[11px] font-mono shrink-0" style={{ color: "var(--gray-3)", minWidth: "36px", textAlign: "right" }}>
@@ -200,10 +200,13 @@ export function ActivityView() {
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
         <div
-          className="sticky top-0 z-10 flex items-center justify-between px-8 py-5"
+          className="sticky top-0 z-10 flex items-center justify-between px-4 lg:px-8 py-5"
           style={{ borderBottom: "0.5px solid var(--line)", background: "var(--bg)" }}
         >
-          <h1 className="text-[17px] font-semibold text-ink">Activity</h1>
+          <div className="flex items-center gap-2">
+            <HamburgerButton />
+            <h1 className="text-[17px] font-semibold text-ink">Activity</h1>
+          </div>
           <button
             onClick={() => { setLoading(true); setError(""); void loadRuns(); }}
             className="text-[12px] transition-opacity hover:opacity-70"
@@ -214,7 +217,7 @@ export function ActivityView() {
         </div>
 
         {/* Content */}
-        <div className="px-8 py-6 max-w-3xl">
+        <div className="px-4 lg:px-8 py-6 max-w-3xl">
           {loading ? (
             <p className="text-[13px]" style={{ color: "var(--gray-2)" }}>Loading…</p>
           ) : error ? (
@@ -248,7 +251,7 @@ export function ActivityView() {
                 <p className="flex-1 text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--gray-3)" }}>
                   Query
                 </p>
-                <span className="text-[10px] font-mono uppercase tracking-wide shrink-0" style={{ color: "var(--gray-3)" }}>
+                <span className="hidden sm:inline text-[10px] font-mono uppercase tracking-wide shrink-0" style={{ color: "var(--gray-3)" }}>
                   Tools
                 </span>
                 <span className="text-[10px] font-mono uppercase tracking-wide shrink-0 min-w-[36px] text-right" style={{ color: "var(--gray-3)" }}>

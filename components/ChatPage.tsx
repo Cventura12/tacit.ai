@@ -5,7 +5,7 @@ import type { Message, ApiMessage, TraceStep, RecentRun } from "@/lib/types";
 import { getReply, ApiError } from "@/lib/getReply";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
-import { Sidebar } from "./Sidebar";
+import { Sidebar, HamburgerButton } from "./Sidebar";
 import { TracePanel } from "./TracePanel";
 import { TacitMark } from "./TacitMark";
 
@@ -251,6 +251,7 @@ export default function ChatPage() {
           style={{ borderBottom: "0.5px solid var(--line)" }}
         >
           <div className="flex items-center gap-2.5">
+            <HamburgerButton />
             <TacitMark size={30} />
             <div>
               <p className="text-[13px] font-medium text-ink leading-none mb-[3px]">

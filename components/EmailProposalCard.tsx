@@ -331,7 +331,7 @@ export function EmailProposalCard({
           <button
             onClick={() => void handleConfirmSend()}
             disabled={isSending || !recipientField.trim()}
-            className="ml-auto px-4 py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="ml-auto px-4 py-2.5 lg:py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSending ? "Sending…" : "Confirm & send →"}
           </button>
@@ -545,7 +545,7 @@ export function EmailProposalCard({
       >
         <button
           onClick={() => setCardState("confirming")}
-          className="px-4 py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors"
+          className="px-4 py-2.5 lg:py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors"
         >
           Approve draft
         </button>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { SignOutButton } from "@clerk/nextjs";
@@ -88,33 +89,41 @@ const NAV_ITEMS = [
   { icon: <IcoConnections />, label: "Connections", href: "/connections" },
 ];
 
-// ── Sidebar ────────────────────────────────────────────────────────────────────
+// ── Mobile trigger ────────────────────────────────────────────────────────────
+// Dispatch a custom event so the Sidebar can open from any page header.
 
-interface SidebarProps {
-  recentRuns?: RecentRun[];
-  onNewRequest?: () => void;
+const SIDEBAR_OPEN = "tacit:sidebar:open";
+
+export function HamburgerButton({ className }: { className?: string }) {
+  return (
+    <button
+      type="button"
+      className={`lg:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors hover:bg-black/5 ${className ?? ""}`}
+      onClick={() => window.dispatchEvent(new CustomEvent(SIDEBAR_OPEN))}
+      aria-label="Open navigation menu"
+    >
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none" aria-hidden="true">
+        <path d="M1 1h16M1 7h16M1 13h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
 }
 
-export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
-  const pathname = usePathname();
-  const router = useRouter();
+// ── Inner content (shared by mobile drawer and desktop sidebar) ───────────────
 
-  function handleNewRequest() {
-    if (onNewRequest) {
-      onNewRequest();
-    } else {
-      router.push("/");
-    }
-  }
-
+function SidebarInner({
+  pathname,
+  recentRuns,
+  onNavigate,
+  onNewRequest,
+}: {
+  pathname: string;
+  recentRuns: RecentRun[];
+  onNavigate?: () => void;
+  onNewRequest?: () => void;
+}) {
   return (
-    <aside
-      className="hidden lg:flex flex-col w-[220px] shrink-0 h-dvh"
-      style={{
-        background: "var(--forest)",
-        borderRight: "0.5px solid var(--forest-border)",
-      }}
-    >
+    <>
       {/* Logo */}
       <div className="w-full">
         <TacitLogo />
@@ -123,7 +132,7 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
       {/* New request button */}
       <div className="px-3 pb-4">
         <button
-          onClick={handleNewRequest}
+          onClick={() => { onNewRequest?.(); onNavigate?.(); }}
           className="w-full flex items-center gap-2 px-3 py-[8px] rounded-lg text-[13px] font-medium text-white transition-opacity hover:opacity-90"
           style={{ background: "var(--green)" }}
         >
@@ -143,7 +152,8 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
             <Link
               key={item.label}
               href={item.href}
-              className="flex items-center gap-2.5 px-2 py-[7px] rounded-lg w-full transition-colors"
+              onClick={onNavigate}
+              className="flex items-center gap-2.5 px-2 py-3 lg:py-[7px] rounded-lg w-full transition-colors"
               style={{
                 background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
                 color: isActive ? "var(--forest-text)" : "var(--forest-muted)",
@@ -199,7 +209,7 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Bottom: machine + owner */}
+      {/* Bottom: status + owner */}
       <div
         className="px-4 py-4"
         style={{ borderTop: "0.5px solid var(--forest-border)" }}
@@ -249,6 +259,84 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
           </SignOutButton>
         </div>
       </div>
-    </aside>
+    </>
+  );
+}
+
+// ── Sidebar ────────────────────────────────────────────────────────────────────
+
+interface SidebarProps {
+  recentRuns?: RecentRun[];
+  onNewRequest?: () => void;
+}
+
+export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setMobileOpen(true);
+    window.addEventListener(SIDEBAR_OPEN, handler);
+    return () => window.removeEventListener(SIDEBAR_OPEN, handler);
+  }, []);
+
+  function close() { setMobileOpen(false); }
+
+  function handleNewRequest() {
+    if (onNewRequest) { onNewRequest(); } else { router.push("/"); }
+    close();
+  }
+
+  const innerProps = { pathname, recentRuns, onNewRequest: handleNewRequest };
+
+  return (
+    <>
+      {/* ── Mobile overlay drawer ── */}
+      {mobileOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            onClick={close}
+            aria-hidden="true"
+          />
+          {/* Drawer panel */}
+          <aside
+            className="lg:hidden fixed inset-y-0 left-0 z-50 w-[260px] flex flex-col overflow-y-auto"
+            style={{
+              background: "var(--forest)",
+              borderRight: "0.5px solid var(--forest-border)",
+            }}
+          >
+            {/* Close button row */}
+            <div className="flex justify-end px-3 pt-3 pb-0">
+              <button
+                onClick={close}
+                className="w-8 h-8 flex items-center justify-center rounded-lg transition-opacity hover:opacity-70"
+                style={{ color: "var(--forest-muted)" }}
+                aria-label="Close navigation"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <SidebarInner {...innerProps} onNavigate={close} />
+          </aside>
+        </>
+      )}
+
+      {/* ── Desktop sidebar ── */}
+      <aside
+        className="hidden lg:flex flex-col w-[220px] shrink-0 h-dvh"
+        style={{
+          background: "var(--forest)",
+          borderRight: "0.5px solid var(--forest-border)",
+        }}
+      >
+        <SidebarInner {...innerProps} />
+      </aside>
+    </>
   );
 }
