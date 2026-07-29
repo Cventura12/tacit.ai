@@ -1,15 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { TraceStep } from "@/lib/types";
 
-// ── Context items ──────────────────────────────────────────────────────────────
+const GMAIL_CONNECTOR_ID = "00000000-0000-0000-0000-000000000003";
 
-interface ContextItem {
-  label: string;
-  detail: string;
-  active: boolean;
-  icon: React.ReactNode;
-}
+// ── Icons ──────────────────────────────────────────────────────────────────────
 
 const IcoDoc = () => (
   <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
@@ -55,35 +51,53 @@ interface TracePanelProps {
   currentRunLabel?: string;
 }
 
-const CONTEXT_ITEMS: ContextItem[] = [
-  {
-    label: "Document index",
-    detail: "local full-text search",
-    active: true,
-    icon: <IcoDoc />,
-  },
-  {
-    label: "Local storage",
-    detail: "files stay on this machine",
-    active: true,
-    icon: <IcoStorage />,
-  },
-  {
-    label: "Gmail",
-    detail: "connect flow not completed",
-    active: false,
-    icon: <IcoMail />,
-  },
-  {
-    label: "Activity view",
-    detail: "trace browser not built yet",
-    active: false,
-    icon: <IcoActivity />,
-  },
-];
-
 export function TracePanel({ steps, currentRunLabel }: TracePanelProps) {
   const hasSteps = steps.length > 0;
+
+  const [gmailConnected, setGmailConnected] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/owner/connectors")
+      .then((r) => {
+        if (!r.ok) return null;
+        return r.json() as Promise<{ connectors?: { id: string; name?: string; credential_masked?: string | null }[] }>;
+      })
+      .then((d) => {
+        if (!d) return;
+        const gmail = d.connectors?.find(
+          (c) => c.id === GMAIL_CONNECTOR_ID || c.name?.toLowerCase().includes("gmail")
+        );
+        setGmailConnected(!!gmail?.credential_masked);
+      })
+      .catch(() => {});
+  }, []);
+
+  const contextItems = [
+    {
+      label: "Document index",
+      detail: "local full-text search",
+      active: true,
+      icon: <IcoDoc />,
+    },
+    {
+      label: "Local storage",
+      detail: "files stay on this machine",
+      active: true,
+      icon: <IcoStorage />,
+    },
+    {
+      label: "Gmail",
+      detail: gmailConnected ? "read + send connected" : "not connected — use ⊕ → Connectors",
+      active: gmailConnected,
+      icon: <IcoMail />,
+    },
+    {
+      label: "Activity view",
+      detail: "trace browser not built yet",
+      active: false,
+      icon: <IcoActivity />,
+    },
+  ];
 
   return (
     <aside
@@ -176,7 +190,7 @@ export function TracePanel({ steps, currentRunLabel }: TracePanelProps) {
           CONTEXT
         </p>
         <div className="flex flex-col gap-2">
-          {CONTEXT_ITEMS.map((item) => (
+          {contextItems.map((item) => (
             <div key={item.label} className="flex items-start gap-2.5">
               <span
                 className="shrink-0 mt-[1px]"

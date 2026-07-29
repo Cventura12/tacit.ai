@@ -140,4 +140,5 @@ export async function getEnabledMcpConnectors(): Promise<ConnectorRow[]> {
     .eq("enabled", true);
   if (error) throw new Error(`Failed to load MCP connectors: ${error.message}`);
   return (data ?? []) as ConnectorRow[];
+  
 }

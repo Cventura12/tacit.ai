@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { SignOutButton } from "@clerk/nextjs";
 import type { RecentRun } from "@/lib/types";
 
@@ -65,21 +67,34 @@ const TacitLogo = () => (
   </svg>
 );
 
+// ── Nav config ────────────────────────────────────────────────────────────────
+
+const NAV_ITEMS = [
+  { icon: <IcoWorkspace />, label: "Workspace", href: "/" },
+  { icon: <IcoDocuments />, label: "Documents", href: "/documents" },
+  { icon: <IcoActivity />, label: "Activity", href: "/activity" },
+  { icon: <IcoConnections />, label: "Connections", href: "/connections" },
+];
+
 // ── Sidebar ────────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
-  recentRuns: RecentRun[];
-  onNewRequest: () => void;
+  recentRuns?: RecentRun[];
+  onNewRequest?: () => void;
 }
 
-const NAV_ITEMS: { icon: React.ReactNode; label: string; active: boolean }[] = [
-  { icon: <IcoWorkspace />, label: "Workspace", active: true },
-  { icon: <IcoDocuments />, label: "Documents", active: false },
-  { icon: <IcoActivity />, label: "Activity", active: false },
-  { icon: <IcoConnections />, label: "Connections", active: false },
-];
+export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
+  const pathname = usePathname();
+  const router = useRouter();
 
-export function Sidebar({ recentRuns, onNewRequest }: SidebarProps) {
+  function handleNewRequest() {
+    if (onNewRequest) {
+      onNewRequest();
+    } else {
+      router.push("/");
+    }
+  }
+
   return (
     <aside
       className="hidden lg:flex flex-col w-[220px] shrink-0 h-dvh"
@@ -96,7 +111,7 @@ export function Sidebar({ recentRuns, onNewRequest }: SidebarProps) {
       {/* New request button */}
       <div className="px-3 pb-4">
         <button
-          onClick={onNewRequest}
+          onClick={handleNewRequest}
           className="w-full flex items-center gap-2 px-3 py-[8px] rounded-lg text-[13px] font-medium text-white transition-opacity hover:opacity-90"
           style={{ background: "var(--green)" }}
         >
@@ -109,21 +124,27 @@ export function Sidebar({ recentRuns, onNewRequest }: SidebarProps) {
 
       {/* Nav */}
       <nav className="px-2 flex flex-col gap-[2px]">
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.label}
-            className="flex items-center gap-2.5 px-2 py-[7px] rounded-lg w-full text-left transition-colors"
-            style={{
-              background: item.active ? "rgba(255,255,255,0.08)" : "transparent",
-              color: item.active ? "var(--forest-text)" : "var(--forest-muted)",
-            }}
-          >
-            <span style={{ color: item.active ? "var(--forest-text)" : "var(--forest-icon)" }}>
-              {item.icon}
-            </span>
-            <span className="text-[13px]">{item.label}</span>
-          </button>
-        ))}
+        {NAV_ITEMS.map((item) => {
+          const isActive =
+            item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="flex items-center gap-2.5 px-2 py-[7px] rounded-lg w-full transition-colors"
+              style={{
+                background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
+                color: isActive ? "var(--forest-text)" : "var(--forest-muted)",
+                textDecoration: "none",
+              }}
+            >
+              <span style={{ color: isActive ? "var(--forest-text)" : "var(--forest-icon)" }}>
+                {item.icon}
+              </span>
+              <span className="text-[13px]">{item.label}</span>
+            </Link>
+          );
+        })}
       </nav>
 
       {/* Recent runs */}

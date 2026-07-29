@@ -96,6 +96,13 @@ const IcoCheck = () => (
   </svg>
 );
 
+const IcoMail = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="1.5" y="4" width="13" height="9" rx="1" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M1.5 5.5l6.5 4.5 6.5-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
 function Row({
@@ -254,6 +261,12 @@ export function CommandMenu({ onUploadClick, uploading, uploadError }: CommandMe
     if (res.ok) setConnectors((prev) => prev.filter((c) => c.id !== id));
   }
 
+  async function disconnectGmail() {
+    if (!confirm("Disconnect Gmail? You'll need to reconnect to read or send Gmail.")) return;
+    const res = await fetch(`/api/owner/connectors/${GMAIL_CONNECTOR_ID}`, { method: "DELETE" });
+    if (res.ok) setConnectors((prev) => prev.filter((c) => c.id !== GMAIL_CONNECTOR_ID));
+  }
+
   async function handleAddConnector(e: React.FormEvent) {
     e.preventDefault();
     if (addSubmitting) return;
@@ -290,6 +303,15 @@ export function CommandMenu({ onUploadClick, uploading, uploadError }: CommandMe
     addForm.name.trim() &&
     addForm.mcp_url.trim() &&
     (addForm.lane === "owner" || publicConfirmed);
+
+  const gmailConnector = connectors.find(
+    (c) =>
+      (c.id === GMAIL_CONNECTOR_ID || c.name?.toLowerCase().includes("gmail")) &&
+      !!c.credential_masked
+  );
+  const otherConnectors = connectors.filter(
+    (c) => c.id !== GMAIL_CONNECTOR_ID && !c.name?.toLowerCase().includes("gmail")
+  );
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -404,40 +426,78 @@ export function CommandMenu({ onUploadClick, uploading, uploadError }: CommandMe
             <Divider />
             {connLoading ? (
               <EmptyNote>Loading…</EmptyNote>
-            ) : connectors.length === 0 ? (
-              <EmptyNote>No connectors found.</EmptyNote>
             ) : (
-              connectors.map((c) => (
-                <div key={c.id} className="group flex items-center rounded-[6px] hover:bg-ink/[0.07] transition-colors">
-                  <button
-                    type="button"
-                    onClick={() => void toggleConnector(c.id, c.enabled)}
-                    className="flex-1 flex items-center gap-2 h-[30px] px-2 text-left min-w-0"
-                  >
-                    <span className="text-ink/40 shrink-0 flex items-center"><IcoPlug /></span>
-                    <span className="flex-1 text-[13px] text-ink truncate leading-none">{c.name}</span>
-                    {c.enabled && (
-                      <span className="text-green flex items-center shrink-0"><IcoCheck /></span>
-                    )}
-                  </button>
-                  {c.id === GMAIL_CONNECTOR_ID ? (
-                    <a
-                      href="/api/owner/gmail/connect"
-                      className="text-[11px] text-green/70 hover:text-green shrink-0 pr-2 transition-colors"
-                    >
-                      {c.credential_masked ? "Reconnect" : "Connect"}
-                    </a>
-                  ) : c.type === "mcp" ? (
+              <>
+                {/* Gmail — always shown; row exists only after OAuth completes */}
+                {gmailConnector ? (
+                  <div className="group flex items-center rounded-[6px] hover:bg-ink/[0.07] transition-colors">
                     <button
                       type="button"
-                      onClick={() => void removeConnector(c.id, c.name)}
+                      onClick={() => void toggleConnector(gmailConnector.id, gmailConnector.enabled)}
+                      className="flex-1 flex items-center gap-2 h-[30px] px-2 text-left min-w-0"
+                    >
+                      <span className="text-ink/40 shrink-0 flex items-center"><IcoMail /></span>
+                      <span className="flex-1 text-[13px] text-ink truncate leading-none">{gmailConnector.name}</span>
+                      {gmailConnector.enabled && (
+                        <span className="text-green flex items-center shrink-0"><IcoCheck /></span>
+                      )}
+                    </button>
+                    <a
+                      href="/api/owner/gmail/connect"
+                      className="text-[11px] text-ink/30 hover:text-green shrink-0 pr-1 transition-colors"
+                    >
+                      Reconnect
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void disconnectGmail()}
                       className="opacity-0 group-hover:opacity-100 text-gray-3 hover:text-red-400 transition-all px-2 h-[30px] flex items-center shrink-0 text-base leading-none"
                     >
                       ×
                     </button>
-                  ) : null}
-                </div>
-              ))
+                  </div>
+                ) : (
+                  <div className="flex items-center rounded-[6px] hover:bg-ink/[0.07] transition-colors">
+                    <div className="flex-1 flex items-center gap-2 h-[30px] px-2 min-w-0">
+                      <span className="text-ink/40 shrink-0 flex items-center"><IcoMail /></span>
+                      <span className="flex-1 text-[13px] text-ink/60 truncate leading-none">Gmail</span>
+                    </div>
+                    <a
+                      href="/api/owner/gmail/connect"
+                      className="text-[11px] text-green/70 hover:text-green shrink-0 pr-2 transition-colors"
+                    >
+                      Connect
+                    </a>
+                  </div>
+                )}
+
+                {/* MCP and other non-Gmail connectors */}
+                {otherConnectors.length > 0 && <Divider />}
+                {otherConnectors.map((c) => (
+                  <div key={c.id} className="group flex items-center rounded-[6px] hover:bg-ink/[0.07] transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => void toggleConnector(c.id, c.enabled)}
+                      className="flex-1 flex items-center gap-2 h-[30px] px-2 text-left min-w-0"
+                    >
+                      <span className="text-ink/40 shrink-0 flex items-center"><IcoPlug /></span>
+                      <span className="flex-1 text-[13px] text-ink truncate leading-none">{c.name}</span>
+                      {c.enabled && (
+                        <span className="text-green flex items-center shrink-0"><IcoCheck /></span>
+                      )}
+                    </button>
+                    {c.type === "mcp" && (
+                      <button
+                        type="button"
+                        onClick={() => void removeConnector(c.id, c.name)}
+                        className="opacity-0 group-hover:opacity-100 text-gray-3 hover:text-red-400 transition-all px-2 h-[30px] flex items-center shrink-0 text-base leading-none"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </>
             )}
           </>
         )}

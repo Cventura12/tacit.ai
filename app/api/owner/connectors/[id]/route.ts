@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import type { Database } from "@/lib/db";
 import { requireOwner } from "@/lib/auth";
+import { GMAIL_CONNECTOR_ID } from "@/lib/gmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +67,8 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (existing.type === "builtin") {
+  // Gmail is a builtin connector whose credential is user-owned OAuth — allow disconnect.
+  if (existing.type === "builtin" && id !== GMAIL_CONNECTOR_ID) {
     return NextResponse.json({ error: "Built-in connectors cannot be removed" }, { status: 403 });
   }
 
