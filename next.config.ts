@@ -41,6 +41,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  experimental: {
+    // Next.js intercepts all multipart/form-data POSTs (including route handlers) through
+    // the Server Action body-size gate. The default is 1MB; raise it to match the route
+    // handler's own MAX_BYTES limit so large PDF uploads are not rejected before they arrive.
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
   // Keep heavy native modules out of the Webpack/Turbopack bundle.
   // Equivalent to Astro's ssr.external — let Node load them directly.
   serverExternalPackages: [
