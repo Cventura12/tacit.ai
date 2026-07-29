@@ -122,6 +122,44 @@ export type Database = {
         Update: Record<string, never>;
         Relationships: [];
       };
+      pending_proposals: {
+        Row: {
+          id: string;
+          gmail_message_id: string;
+          sender: string;
+          subject: string;
+          classification: string;
+          reason: string;
+          draft_body: string | null;
+          grounded_sources: unknown;
+          suggested_attachments: unknown;
+          thread_id: string | null;
+          in_reply_to_id: string | null;
+          status: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          gmail_message_id: string;
+          sender?: string;
+          subject?: string;
+          classification?: string;
+          reason?: string;
+          draft_body?: string | null;
+          grounded_sources?: unknown;
+          suggested_attachments?: unknown;
+          thread_id?: string | null;
+          in_reply_to_id?: string | null;
+          status?: string;
+          created_at?: string;
+        };
+        Update: {
+          status?: string;
+          draft_body?: string | null;
+          grounded_sources?: unknown;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

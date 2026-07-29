@@ -31,6 +31,17 @@ const IcoActivity = () => (
   </svg>
 );
 
+const IcoInbox = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+    <path d="M1.5 9h3a3 3 0 006 0h3"
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    <path d="M13.5 9V12a.5.5 0 01-.5.5H2a.5.5 0 01-.5-.5V9"
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    <path d="M7.5 1.5v6M5.5 5.5l2 2 2-2"
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 const IcoConnections = () => (
   <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
     <path d="M5 3.5v2M10 3.5v2M4 5.5h7v1.5a3.5 3.5 0 01-3.5 3.5v0A3.5 3.5 0 014 7V5.5zM7.5 10.5v3"
@@ -73,6 +84,7 @@ const NAV_ITEMS = [
   { icon: <IcoWorkspace />, label: "Workspace", href: "/" },
   { icon: <IcoDocuments />, label: "Documents", href: "/documents" },
   { icon: <IcoActivity />, label: "Activity", href: "/activity" },
+  { icon: <IcoInbox />, label: "Inbox", href: "/inbox" },
   { icon: <IcoConnections />, label: "Connections", href: "/connections" },
 ];
 

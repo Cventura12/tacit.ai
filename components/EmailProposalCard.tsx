@@ -78,7 +78,15 @@ type PanelDoc = { docId: string; page: number; title: string; highlight?: string
 
 // ── EmailProposalCard ──────────────────────────────────────────────────────────
 
-export function EmailProposalCard({ proposal }: { proposal: EmailProposal }) {
+export function EmailProposalCard({
+  proposal,
+  onSent,
+  onSkipped,
+}: {
+  proposal: EmailProposal;
+  onSent?: () => void;
+  onSkipped?: () => void;
+}) {
   const [draft, setDraft] = useState(proposal.draft_reply ?? "");
   const [cardState, setCardState] = useState<CardState>("pending");
   const [editing, setEditing] = useState(false);
@@ -150,6 +158,7 @@ export function EmailProposalCard({ proposal }: { proposal: EmailProposal }) {
 
       setSentAt(data.sent_at ?? new Date().toISOString());
       setCardState("sent");
+      onSent?.();
     } catch {
       setSendError("Network error — try again");
       setCardState("confirming");
@@ -547,7 +556,7 @@ export function EmailProposalCard({ proposal }: { proposal: EmailProposal }) {
           {editing ? "Done editing" : "Edit"}
         </button>
         <button
-          onClick={() => setCardState("skipped")}
+          onClick={() => { setCardState("skipped"); onSkipped?.(); }}
           className="text-[13px] text-gray-3 hover:text-gray-1 transition-colors"
         >
           Skip

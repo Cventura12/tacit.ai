@@ -369,3 +369,36 @@ export async function readRecent(
 
   return results;
 }
+
+// ─── Read full message body ────────────────────────────────────────────────────
+
+interface GmailPayload {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPayload[];
+}
+
+function extractTextBody(payload: GmailPayload): string {
+  if (payload.mimeType === "text/plain" && payload.body?.data) {
+    return Buffer.from(payload.body.data, "base64url").toString("utf-8");
+  }
+  for (const part of payload.parts ?? []) {
+    const text = extractTextBody(part);
+    if (text) return text;
+  }
+  return "";
+}
+
+export async function readMessageBody(messageId: string): Promise<string> {
+  const token = await getAccessToken();
+  const url = new URL(`${GMAIL_API}/users/me/messages/${messageId}`);
+  url.searchParams.set("format", "full");
+
+  const res = await loggedFetch(`messages.get.full(${messageId})`, url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Failed to fetch message body (${res.status})`);
+
+  const msg = (await res.json()) as { payload?: GmailPayload };
+  return msg.payload ? extractTextBody(msg.payload) : "";
+}
