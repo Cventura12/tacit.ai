@@ -91,6 +91,7 @@ export const fetch_webpage: ToolDefinition = {
   execute: async (input) => {
     const url = typeof input.url === "string" ? input.url.trim() : "";
     if (!url) return JSON.stringify({ error: "url is required" });
+    // SSRF guard runs before any network access.
     if (!isSafeUrl(url)) {
       return JSON.stringify({ error: "URL must be a public http(s) address — private/internal addresses are not allowed" });
     }
@@ -102,27 +103,49 @@ export const fetch_webpage: ToolDefinition = {
       const res = await fetch(url, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; TacitAgent/1.0)",
-          Accept: "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,*/*;q=0.5",
+          // Present as a real desktop browser to avoid bot-detection 403s.
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Site": "none",
         },
       });
 
       clearTimeout(timer);
 
+      // Distinguish each failure mode so the agent can report it accurately.
+      if (res.status === 403) {
+        return JSON.stringify({
+          error: "Site blocked the request (403 Forbidden), even with browser headers. Contents could not be read.",
+          url,
+          status: 403,
+        });
+      }
+      if (res.status === 404) {
+        return JSON.stringify({
+          error: "Page not found (404).",
+          url,
+          status: 404,
+        });
+      }
       if (!res.ok) {
         return JSON.stringify({
-          error: `HTTP ${res.status} — page could not be fetched`,
+          error: `HTTP ${res.status} — page could not be fetched.`,
           url,
-          suggestion: "Verify the URL is correct and publicly accessible.",
+          status: res.status,
         });
       }
 
+      // Only attempt HTML extraction on HTML responses.
       const contentType = res.headers.get("content-type") ?? "";
-      if (!contentType.includes("html") && !contentType.includes("text")) {
+      if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
         return JSON.stringify({
-          error: `Not a readable page (content-type: ${contentType}) — this may be a PDF, image, or binary file`,
+          error: `URL returned a non-HTML resource (content-type: ${contentType || "unknown"}) — cannot extract readable text. Visit the URL directly to read it.`,
           url,
+          status: res.status,
         });
       }
 
@@ -148,7 +171,7 @@ export const fetch_webpage: ToolDefinition = {
       clearTimeout(timer);
       if (err instanceof Error && err.name === "AbortError") {
         return JSON.stringify({
-          error: "Request timed out (10s) — the page may be slow, unreachable, or blocking automated access",
+          error: "Request timed out after 10s.",
           url,
         });
       }
