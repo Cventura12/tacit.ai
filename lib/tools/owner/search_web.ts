@@ -1,25 +1,24 @@
 import type { ToolDefinition } from "../registry";
 import { logOwnerAction } from "@/lib/owner-actions";
 
-const BRAVE_API = "https://api.search.brave.com/res/v1/web/search";
+const TAVILY_API = "https://api.tavily.com/search";
 const DEFAULT_COUNT = 5;
 const MAX_COUNT = 10;
 
-interface BraveResult {
+interface TavilyResult {
   title?: string;
   url?: string;
-  description?: string;
+  content?: string;
 }
 
-interface BraveResponse {
-  web?: { results?: BraveResult[] };
-  error?: { code?: string; message?: string };
+interface TavilyResponse {
+  results?: TavilyResult[];
 }
 
 export const search_web: ToolDefinition = {
   name: "search_web",
   description:
-    "Searches the web (via Brave Search) and returns top results — title, URL, snippet. " +
+    "Searches the web (via Tavily) and returns top results — title, URL, snippet. " +
     "Use for current external information not in the user's documents: recent policy changes, program pages, official gov announcements, school portals. " +
     "WORKFLOW: search_web finds pages → fetch_webpage reads the most relevant one(s) → cite URL(s) in response. " +
     "Always include source URL when citing a result. " +
@@ -43,10 +42,10 @@ export const search_web: ToolDefinition = {
   lane: "owner",
   statusLabel: "searching the web…",
   execute: async (input) => {
-    const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+    const apiKey = process.env.TAVILY_API_KEY;
     if (!apiKey) {
       return JSON.stringify({
-        error: "BRAVE_SEARCH_API_KEY is not set — add it to your Vercel environment variables to enable web search.",
+        error: "TAVILY_API_KEY is not set — add it to your Vercel environment variables to enable web search.",
       });
     }
 
@@ -58,41 +57,36 @@ export const search_web: ToolDefinition = {
         ? Math.min(Math.max(1, Math.floor(input.count)), MAX_COUNT)
         : DEFAULT_COUNT;
 
-    const url = new URL(BRAVE_API);
-    url.searchParams.set("q", query);
-    url.searchParams.set("count", String(count));
-    url.searchParams.set("text_decorations", "false");
-    url.searchParams.set("spellcheck", "false");
-
     try {
-      const res = await fetch(url.toString(), {
+      const res = await fetch(TAVILY_API, {
+        method: "POST",
         headers: {
-          Accept: "application/json",
-          "Accept-Encoding": "gzip",
-          "X-Subscription-Token": apiKey,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
         },
+        body: JSON.stringify({
+          query,
+          search_depth: "basic",
+          max_results: count,
+          include_answer: false,
+          include_raw_content: false,
+        }),
       });
 
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         return JSON.stringify({
-          error: `Brave Search returned HTTP ${res.status}`,
+          error: `Tavily returned HTTP ${res.status}`,
           detail: body.slice(0, 200),
         });
       }
 
-      const data = (await res.json()) as BraveResponse;
+      const data = (await res.json()) as TavilyResponse;
 
-      if (data.error) {
-        return JSON.stringify({
-          error: `Brave Search error: ${data.error.message ?? data.error.code ?? "unknown"}`,
-        });
-      }
-
-      const results = (data.web?.results ?? []).map((r) => ({
+      const results = (data.results ?? []).map((r) => ({
         title: r.title ?? "",
         url: r.url ?? "",
-        snippet: r.description ?? "",
+        snippet: r.content ?? "",
       }));
 
       void logOwnerAction("search_web", { query, count, result_count: results.length });
