@@ -102,25 +102,44 @@ export const fetch_webpage: ToolDefinition = {
     try {
       const res = await fetch(url, {
         signal: controller.signal,
+        // Explicit: Node's fetch defaults to "follow" but being unambiguous matters here.
+        // The SSRF guard above validates the *input* URL only; Node follows redirects
+        // internally (e.g. chattanoogastate.edu → www.chattanoogastate.edu). We do NOT
+        // re-run isSafeUrl on redirect targets because that would block legitimate
+        // cross-subdomain redirects. Redirect targets to private IPs are prevented at
+        // the network level by Vercel's sandbox, not by this code.
+        redirect: "follow",
         headers: {
-          // Present as a real desktop browser to avoid bot-detection 403s.
+          // Full browser fingerprint — User-Agent alone isn't enough for some WAFs.
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
+          // Upgrade-Insecure-Requests is sent by every real browser on main-frame navigations;
+          // some WAFs use its absence as a bot signal.
+          "Upgrade-Insecure-Requests": "1",
           "Sec-Fetch-Dest": "document",
           "Sec-Fetch-Mode": "navigate",
           "Sec-Fetch-Site": "none",
+          // Do NOT set Accept-Encoding — Node's built-in fetch (undici) negotiates
+          // compression and decompresses automatically. Setting it manually can cause
+          // double-decompression or garbled text.
         },
       });
 
       clearTimeout(timer);
 
+      // res.url is the final URL after following any redirects — include it in every
+      // response so failures are auditable (e.g. "which hop returned 403?").
+      const finalUrl = res.url || url;
+
       // Distinguish each failure mode so the agent can report it accurately.
       if (res.status === 403) {
+        console.warn(`[fetch_webpage] 403 input=${url} final=${finalUrl}`);
         return JSON.stringify({
           error: "Site blocked the request (403 Forbidden), even with browser headers. Contents could not be read.",
           url,
+          final_url: finalUrl,
           status: 403,
         });
       }
@@ -128,6 +147,7 @@ export const fetch_webpage: ToolDefinition = {
         return JSON.stringify({
           error: "Page not found (404).",
           url,
+          final_url: finalUrl,
           status: 404,
         });
       }
@@ -135,6 +155,7 @@ export const fetch_webpage: ToolDefinition = {
         return JSON.stringify({
           error: `HTTP ${res.status} — page could not be fetched.`,
           url,
+          final_url: finalUrl,
           status: res.status,
         });
       }
@@ -145,6 +166,7 @@ export const fetch_webpage: ToolDefinition = {
         return JSON.stringify({
           error: `URL returned a non-HTML resource (content-type: ${contentType || "unknown"}) — cannot extract readable text. Visit the URL directly to read it.`,
           url,
+          final_url: finalUrl,
           status: res.status,
         });
       }
@@ -157,10 +179,18 @@ export const fetch_webpage: ToolDefinition = {
         ? text.slice(0, MAX_TEXT_CHARS) + "\n\n[…content truncated — first 8,000 characters shown]"
         : text;
 
-      void logOwnerAction("fetch_webpage", { url, title, char_count: text.length, truncated });
+      void logOwnerAction("fetch_webpage", {
+        url,
+        final_url: finalUrl,
+        status: res.status,
+        title,
+        char_count: text.length,
+        truncated,
+      });
 
       return JSON.stringify({
         url,
+        final_url: finalUrl,
         title: title || "(no title)",
         text: excerpt,
         char_count: text.length,
