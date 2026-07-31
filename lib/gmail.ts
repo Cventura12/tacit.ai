@@ -155,9 +155,44 @@ async function getAccessToken(): Promise<string> {
     }).toString(),
   });
 
-  if (!res.ok) throw new Error(`Token refresh failed (${res.status})`);
+  // Parse body regardless of status — Google's 400 contains actionable error details.
+  // loggedFetch already read a clone for logging, so the original body is still readable.
+  const body = (await res.json()) as {
+    access_token?: string;
+    error?: string;
+    error_description?: string;
+  };
 
-  const body = (await res.json()) as { access_token?: string; error?: string };
+  if (!res.ok) {
+    if (body.error === "invalid_grant") {
+      // Refresh token has expired or been revoked. Most common cause: the Google Cloud
+      // OAuth consent screen is in "Testing" publishing status, which forces all refresh
+      // tokens to expire after 7 days. Fix: Google Cloud Console → APIs & Services →
+      // OAuth consent screen → Publishing status → "Publish app" → In production.
+      // After fixing, the user must reconnect Gmail once to get a new refresh token.
+      //
+      // Clear the stale credential now so the Connections page shows "disconnected"
+      // rather than silently failing on every subsequent call.
+      console.error("[gmail] invalid_grant — clearing stale credential");
+      await db
+        .from("connectors")
+        .update({ credential_encrypted: null, credential_masked: null })
+        .eq("id", GMAIL_CONNECTOR_ID)
+        .then(({ error: dbErr }) => {
+          if (dbErr) console.warn("[gmail] failed to clear stale credential:", dbErr.message);
+        });
+      throw new Error(
+        "Gmail refresh token expired (invalid_grant). " +
+          "Most likely cause: Google Cloud OAuth app is in 'Testing' status — refresh tokens expire after 7 days. " +
+          "Fix: Google Cloud Console → OAuth consent screen → set Publishing status to 'In production', then reconnect Gmail."
+      );
+    }
+    throw new Error(
+      `Token refresh failed (${res.status}): ${body.error ?? "unknown"}` +
+        (body.error_description ? ` — ${body.error_description}` : "")
+    );
+  }
+
   if (!body.access_token) {
     throw new Error(
       body.error
