@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Sidebar, HamburgerButton } from "@/components/Sidebar";
 import { EmailProposalCard } from "@/components/EmailProposalCard";
 import type { EmailProposal } from "@/lib/types";
+import { decideMarkStatusOutcome } from "@/lib/inbox-client";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -162,6 +163,7 @@ export function InboxView() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkMsg, setCheckMsg] = useState("");
+  const [statusError, setStatusError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -200,16 +202,45 @@ export function InboxView() {
     }
   }
 
+  function markViewed(id: string) {
+    // Best-effort, fire-and-forget — the endpoint is idempotent server-side, so
+    // there's no need to await or dedupe on the client.
+    void fetch(`/api/owner/inbox/${id}/view`, { method: "POST" }).catch(() => {});
+  }
+
+  function toggle(id: string) {
+    const opening = expandedId !== id;
+    setExpandedId(opening ? id : null);
+    if (opening) markViewed(id);
+  }
+
   async function markStatus(id: string, status: "sent" | "skipped") {
     try {
-      await fetch(`/api/owner/inbox/${id}`, {
+      const res = await fetch(`/api/owner/inbox/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-    } catch { /* best-effort — card already shows confirmed state */ }
-    setProposals((prev) => prev.filter((p) => p.id !== id));
-    if (expandedId === id) setExpandedId(null);
+      const responseBody = (await res.json().catch(() => null)) as
+        | { error?: string; code?: string }
+        | null;
+      const outcome = decideMarkStatusOutcome(res.ok, res.status, responseBody);
+
+      setStatusError(outcome.errorMessage ?? "");
+
+      if (outcome.shouldRemove) {
+        setProposals((prev) => prev.filter((p) => p.id !== id));
+        if (expandedId === id) setExpandedId(null);
+      }
+      if (outcome.shouldReload) {
+        // The server-side row is no longer 'pending' (expired, or already
+        // transitioned elsewhere) — reload so the list reflects the
+        // authoritative state instead of a stale local guess.
+        await load();
+      }
+    } catch {
+      setStatusError("Network error — the proposal was not updated");
+    }
   }
 
   return (
@@ -249,6 +280,24 @@ export function InboxView() {
 
         {/* Content */}
         <div className="px-4 lg:px-8 py-6 max-w-3xl">
+          {statusError && (
+            <div
+              className="mb-4 px-4 py-3 rounded-lg flex items-center justify-between gap-3"
+              style={{
+                background: "rgba(248,113,113,0.08)",
+                border: "0.5px solid rgba(248,113,113,0.2)",
+              }}
+            >
+              <p className="text-[13px]" style={{ color: "#f87171" }}>{statusError}</p>
+              <button
+                onClick={() => setStatusError("")}
+                className="text-[12px] shrink-0"
+                style={{ color: "var(--gray-2)" }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           {loading ? (
             <p className="text-[13px]" style={{ color: "var(--gray-2)" }}>Loading…</p>
           ) : error ? (
@@ -303,7 +352,7 @@ export function InboxView() {
                   key={p.id}
                   proposal={p}
                   expanded={expandedId === p.id}
-                  onToggle={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                  onToggle={() => toggle(p.id)}
                   onSent={() => void markStatus(p.id, "sent")}
                   onSkipped={() => void markStatus(p.id, "skipped")}
                 />

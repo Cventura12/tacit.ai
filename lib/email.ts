@@ -6,6 +6,7 @@
 // they cannot spoof the From address or inject additional recipients.
 
 import { Resend } from "resend";
+import { interpretResendResult } from "@/lib/t002";
 
 // Strip CRLF sequences from any visitor-supplied string — belt-and-suspenders
 // guard against header injection. Resend's SDK also validates headers, but
@@ -26,7 +27,15 @@ export interface MessagePayload {
   fromContact?: string;
 }
 
-export async function sendMessageToOwner(payload: MessagePayload): Promise<void> {
+// Resend's send API confirms the request was ACCEPTED by Resend — never that the
+// email was actually delivered to the owner's inbox (no delivery webhook exists in
+// this repo). Callers must not treat `accepted: true` as delivery confirmation.
+export interface SendMessageResult {
+  accepted: boolean;
+  id?: string;
+}
+
+export async function sendMessageToOwner(payload: MessagePayload): Promise<SendMessageResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("Email service is not configured");
 
@@ -72,11 +81,13 @@ export async function sendMessageToOwner(payload: MessagePayload): Promise<void>
       ? payload.fromContact
       : undefined;
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: fromEmail,
     to: ownerEmail,
     subject,
     text: bodyLines.join("\n"),
     ...(replyTo ? { replyTo } : {}),
   });
+
+  return interpretResendResult(result);
 }

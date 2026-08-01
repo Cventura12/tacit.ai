@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireOwner } from "@/lib/auth";
 import { getDb, isDbConfigured } from "@/lib/db";
 import { runInboxWatch } from "@/lib/inbox-watch";
+import { expireOverdueT002Proposals } from "@/lib/t002";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,8 @@ export async function GET() {
   if (!isDbConfigured()) return NextResponse.json({ proposals: [] });
 
   const db = getDb();
+  await expireOverdueT002Proposals(db);
+
   const { data, error } = await db
     .from("pending_proposals")
     .select("*")
