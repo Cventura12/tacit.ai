@@ -4,6 +4,24 @@ import { logOwnerAction } from "@/lib/owner-actions";
 import { getDb, isDbConfigured } from "@/lib/db";
 import { requireOwner } from "@/lib/auth";
 
+// KNOWN INTEGRITY LIMITATION (see docs/experiments/T-002.md "Known integrity
+// limitation" for the full writeup): this route does not receive a
+// pending_proposals id and has no way to atomically reserve that row before
+// calling sendGmail() below. The real Gmail send is an irreversible external
+// side effect that completes here, BEFORE the caller (EmailProposalCard) makes
+// its follow-up PATCH /api/owner/inbox/[id] call that records decision_at/
+// outcome/sent_at. If that later PATCH loses a race — e.g. the proposal
+// expired in between — it now returns 409 instead of a false 200 (see
+// classifyGuardedTransition in lib/t002.ts), so the failure is at least
+// visible. It does NOT make the Gmail send and the database write into one
+// transaction: the email can still be genuinely sent while the database ends
+// up recording something other than "sent" for that row. Closing this gap for
+// real would need a pending -> sending -> sent reservation state (threading a
+// proposal id through this route, a new status value, and updated UI states in
+// EmailProposalCard) — deliberately not implemented here per explicit scope
+// instructions to fix the false-success bug now rather than improvise a
+// broader schema/UI change.
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 

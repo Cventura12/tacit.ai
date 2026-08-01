@@ -7,6 +7,11 @@ export interface Message {
   subject: string;
   body: string;             // snippet or full body — sufficient for triage
   receivedAt: string;       // ISO 8601
+  // True when receivedAt fell back to processing time because the channel had no
+  // genuine source-received timestamp (e.g. a missing Gmail Date header) — see
+  // GmailChannel.fetchNew(). Rows built from an inferred receivedAt must be
+  // excluded from "total system latency" analysis; see docs/experiments/T-002.md.
+  receivedAtInferred: boolean;
   raw?: Record<string, unknown>; // original channel payload, passed through untouched
 }
 

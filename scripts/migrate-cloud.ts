@@ -84,6 +84,7 @@ const MIGRATIONS = [
   "migrations-06-search-score.sql",
   "migrations-07-ocr.sql",
   "migrations-08-fts-fallback.sql",
+  "migrations-09-t002-instrumentation.sql",
 ];
 
 // ── Run ──────────────────────────────────────────────────────────────────────

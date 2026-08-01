@@ -137,6 +137,19 @@ export type Database = {
           in_reply_to_id: string | null;
           status: string;
           created_at: string;
+          source_received_at: string | null;
+          source_received_at_inferred: boolean | null;
+          detected_at: string | null;
+          filtered_at: string | null;
+          proposal_created_at: string | null;
+          notification_attempted_at: string | null;
+          notification_accepted_at: string | null;
+          first_viewed_at: string | null;
+          decision_at: string | null;
+          sent_at: string | null;
+          skipped_at: string | null;
+          expired_at: string | null;
+          outcome: string | null;
         };
         Insert: {
           id?: string;
@@ -152,12 +165,92 @@ export type Database = {
           in_reply_to_id?: string | null;
           status?: string;
           created_at?: string;
+          source_received_at?: string | null;
+          source_received_at_inferred?: boolean | null;
+          detected_at?: string | null;
+          filtered_at?: string | null;
+          proposal_created_at?: string | null;
+          notification_attempted_at?: string | null;
+          notification_accepted_at?: string | null;
+          first_viewed_at?: string | null;
+          decision_at?: string | null;
+          sent_at?: string | null;
+          skipped_at?: string | null;
+          expired_at?: string | null;
+          outcome?: string | null;
         };
         Update: {
           status?: string;
           draft_body?: string | null;
           grounded_sources?: unknown;
+          notification_attempted_at?: string | null;
+          notification_accepted_at?: string | null;
+          first_viewed_at?: string | null;
+          decision_at?: string | null;
+          sent_at?: string | null;
+          skipped_at?: string | null;
+          expired_at?: string | null;
+          outcome?: string | null;
         };
+        Relationships: [];
+      };
+      filter_rejections: {
+        Row: {
+          id: string;
+          gmail_message_id: string;
+          source_domain: string;
+          source_identifier: string;
+          rejected_at: string;
+          review_outcome: string;
+          reviewed_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          gmail_message_id: string;
+          source_domain?: string;
+          source_identifier?: string;
+          rejected_at?: string;
+          review_outcome?: string;
+          reviewed_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          review_outcome?: string;
+          reviewed_at?: string | null;
+        };
+        Relationships: [];
+      };
+      proposal_events: {
+        Row: {
+          id: string;
+          proposal_id: string;
+          event_type: string;
+          occurred_at: string;
+          metadata: unknown;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          proposal_id: string;
+          event_type: string;
+          occurred_at?: string;
+          metadata?: unknown;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      t002_observations: {
+        Row: { proposal_id: string; enrolled_at: string };
+        Insert: { proposal_id: string; enrolled_at?: string };
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      t002_enrollment_counter: {
+        Row: { id: boolean; cap: number; enrolled_count: number };
+        Insert: { id?: boolean; cap: number; enrolled_count?: number };
+        Update: { cap?: number; enrolled_count?: number };
         Relationships: [];
       };
     };
@@ -174,6 +267,14 @@ export type Database = {
       search_document_pages_all: {
         Args: { q: string; lim?: number };
         Returns: { doc_id: string; title: string; doc_type: string | null; page_number: number; snippet: string; score: number }[];
+      };
+      t002_try_enroll: {
+        Args: { p_proposal_id: string };
+        Returns: boolean;
+      };
+      t002_expire_overdue: {
+        Args: { p_hours: number };
+        Returns: { proposal_id: string }[];
       };
     };
     Enums: Record<string, never>;

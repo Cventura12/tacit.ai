@@ -34,6 +34,10 @@ export class GmailChannel implements Channel {
       // later by handle_email when a message actually needs a reply.
       body: m.snippet,
       receivedAt: m.date || new Date().toISOString(),
+      // m.date is the Gmail "Date" header text, or "" if that header was
+      // missing — in which case receivedAt above is processing time, not a
+      // genuine receipt time.
+      receivedAtInferred: !m.date,
       raw: {
         id: m.id,
         unread: m.unread,
