@@ -2,10 +2,16 @@ import type { ToolDefinition } from "../registry";
 import { readRecent } from "@/lib/gmail";
 import { logOwnerAction } from "@/lib/owner-actions";
 
+// The safe log/tool_runs summary for this tool's results lives in
+// ../tool-log-summary.ts (buildReadGmailLogSummary), not here — that module
+// has no @/-aliased imports, which keeps it directly testable under Node's
+// native test runner (this file can't be imported directly by tests for that
+// reason; see read_gmail.test.ts's own comment).
+
 export const read_gmail: ToolDefinition = {
   name: "read_gmail",
   description:
-    "Reads recent messages from your Gmail inbox. Returns sender, subject, snippet, date, and unread status for each message. Supports Gmail search syntax (e.g. 'is:unread', 'from:someone@example.com', 'newer_than:3d'). Read-only — cannot send, delete, or modify mail in any way.",
+    "Reads recent messages from your Gmail inbox. Returns sender, subject, a short PREVIEW SNIPPET (not the full message), date, and unread status for each message. Supports Gmail search syntax (e.g. 'is:unread', 'from:someone@example.com', 'newer_than:3d'). Read-only — cannot send, delete, or modify mail in any way. Use read_gmail_message to get a specific message's complete body before confirming details or drafting a reply — the snippet here is a preview only.",
   input_schema: {
     type: "object",
     properties: {

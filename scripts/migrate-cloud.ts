@@ -85,6 +85,8 @@ const MIGRATIONS = [
   "migrations-07-ocr.sql",
   "migrations-08-fts-fallback.sql",
   "migrations-09-t002-instrumentation.sql",
+  "migrations-10-gmail-body-provenance.sql",
+  "migrations-11-t002-body-completeness-boundary.sql",
 ];
 
 // ── Run ──────────────────────────────────────────────────────────────────────

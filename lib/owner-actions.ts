@@ -1,4 +1,4 @@
-import { isDbConfigured, getDb } from "./db";
+import { isDbConfigured, getDb } from "./db.ts";
 
 export async function logOwnerAction(
   action: string,

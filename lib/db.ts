@@ -150,6 +150,11 @@ export type Database = {
           skipped_at: string | null;
           expired_at: string | null;
           outcome: string | null;
+          content_completeness: string | null;
+          locally_truncated: boolean | null;
+          body_parts_failed: number | null;
+          body_original_character_count: number | null;
+          body_error_codes: string[] | null;
         };
         Insert: {
           id?: string;
@@ -178,6 +183,11 @@ export type Database = {
           skipped_at?: string | null;
           expired_at?: string | null;
           outcome?: string | null;
+          content_completeness?: string | null;
+          locally_truncated?: boolean | null;
+          body_parts_failed?: number | null;
+          body_original_character_count?: number | null;
+          body_error_codes?: string[] | null;
         };
         Update: {
           status?: string;
@@ -248,9 +258,18 @@ export type Database = {
         Relationships: [];
       };
       t002_enrollment_counter: {
-        Row: { id: boolean; cap: number; enrolled_count: number };
-        Insert: { id?: boolean; cap: number; enrolled_count?: number };
-        Update: { cap?: number; enrolled_count?: number };
+        Row: { id: boolean; cap: number; enrolled_count: number; body_completeness_boundary_at: string | null };
+        Insert: {
+          id?: boolean;
+          cap: number;
+          enrolled_count?: number;
+          body_completeness_boundary_at?: string | null;
+        };
+        // No app code updates cap/enrolled_count directly (both are mutated only
+        // via the t002_try_enroll/t002_activate_body_completeness_boundary
+        // functions), so Update stays empty on purpose — there is no supported
+        // direct-write path for this table from the query builder.
+        Update: Record<string, never>;
         Relationships: [];
       };
     };

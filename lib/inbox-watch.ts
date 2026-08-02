@@ -2,7 +2,7 @@
 
 import { GmailChannel } from "@/lib/relevance/channels/gmail";
 import { relevanceFilter } from "@/lib/relevance/filter";
-import { readMessageBody } from "@/lib/gmail";
+import { readMessageBody, toBodyProvenance, provenanceToInsertFields } from "@/lib/gmail";
 import { handle_email } from "@/lib/tools/owner/handle_email";
 import { getDb } from "@/lib/db";
 import { sendMessageToOwner } from "@/lib/email";
@@ -61,16 +61,31 @@ export async function runInboxWatch(): Promise<WatchResult> {
       continue;
     }
 
-    // Fetch full body; fall back to snippet if it fails
-    let body = msg.body;
-    try {
-      const full = await readMessageBody(msg.id);
-      if (full) body = full;
-    } catch (err) {
-      console.warn(`[inbox-watch] body fetch failed for ${msg.id}:`, err);
+    // Fetch the full body. readMessageBody() never throws — it handles its own
+    // fetch/parse failures and falls back to msg.body (the Gmail snippet)
+    // internally, returning a structured completeness result (see
+    // lib/gmail.ts). Only .text is consumed here; the completeness/error/
+    // attachment fields are logged by readMessageBody itself (safe fields
+    // only) and are not persisted anywhere in this pass — proposal storage is
+    // out of scope here.
+    const bodyResult = await readMessageBody(msg.id, msg.body);
+    if (bodyResult.content_completeness !== "full") {
+      console.warn(
+        `[inbox-watch] body completeness=${bodyResult.content_completeness} for ${msg.id} ` +
+          `(parts_failed=${bodyResult.parts_failed}, codes=${bodyResult.error_codes.join(",")})`
+      );
     }
+    const body = bodyResult.text;
 
-    // Run handle_email to triage, retrieve documents, and draft a reply
+    // Run handle_email to triage, retrieve documents, and draft a reply.
+    // Provenance travels via ctx.emailBodyProvenance — a trusted execution-
+    // context field, not a model-controlled input — because this is a direct
+    // in-process TypeScript call, not a model tool-call. It's the SAME
+    // MessageBodyResult that produced `body` above, never re-derived or
+    // re-classified. If retrieval failed and `body` ended up being the
+    // relevance-filter snippet (or empty), that truthful state
+    // (snippet_only/fetch_failed) travels with it rather than silently
+    // presenting it as a full body.
     let resultStr: string;
     try {
       resultStr = await handle_email.execute(
@@ -80,7 +95,11 @@ export async function runInboxWatch(): Promise<WatchResult> {
           subject: msg.subject,
           gmail_message_id: msg.id,
         },
-        { ip: "cron", onStatus: (label) => console.log(`[inbox-watch] ${msg.id}: ${label}`) }
+        {
+          ip: "cron",
+          onStatus: (label) => console.log(`[inbox-watch] ${msg.id}: ${label}`),
+          emailBodyProvenance: toBodyProvenance(bodyResult),
+        }
       );
     } catch (err) {
       console.error(`[inbox-watch] handle_email failed for ${msg.id}:`, err);
@@ -96,6 +115,12 @@ export async function runInboxWatch(): Promise<WatchResult> {
       continue;
     }
 
+    // Provenance is written from proposal.body_provenance — the exact
+    // MessageBodyResult (via email_body_provenance above) that handle_email
+    // actually triaged/drafted from — never re-derived here. A proposal is
+    // only ever marked "full" if that's genuinely what came back; absent
+    // provenance (shouldn't happen on this path, but see
+    // provenanceToInsertFields) writes null in every column, not "full".
     const { data: inserted, error } = await db
       .from("pending_proposals")
       .insert({
@@ -114,6 +139,7 @@ export async function runInboxWatch(): Promise<WatchResult> {
         detected_at: filterTimestamp,
         filtered_at: filterTimestamp,
         proposal_created_at: new Date().toISOString(),
+        ...provenanceToInsertFields(proposal.body_provenance),
       })
       .select("id")
       .single();

@@ -2,7 +2,21 @@ import type { ToolDefinition } from "../registry";
 import type { EmailProposal } from "@/lib/types";
 import { logOwnerAction } from "@/lib/owner-actions";
 import { search } from "@/lib/documents";
+import {
+  type EmailBodyProvenance,
+  buildSourceContentStatusBlock,
+  resolveTrustedEmailContent,
+  deriveModelContextProvenance,
+} from "@/lib/gmail";
 import Anthropic from "@anthropic-ai/sdk";
+
+// Triage only classifies (actionable/needs_caleb/ignore) — it doesn't need the
+// full body for that, so its prompt caps the text for cost. Any call that
+// caps its own input MUST describe that cap truthfully to the model via
+// deriveModelContextProvenance — see triageEmail below — rather than let the
+// SOURCE CONTENT STATUS block claim "not locally truncated" for text this
+// specific call never actually received.
+const TRIAGE_TEXT_CAP = 1200;
 
 // ─── Internal reasoning steps ─────────────────────────────────────────────────
 
@@ -10,11 +24,18 @@ async function triageEmail(
   client: Anthropic,
   emailText: string,
   sender: string,
-  subject: string
+  subject: string,
+  provenance: EmailBodyProvenance | undefined
 ): Promise<{ classification: EmailProposal["classification"]; reason: string }> {
+  // Model-CONTEXT completeness for this specific call, not source provenance —
+  // if this call's own cap actually cut the text, the model must be told so,
+  // even when the source itself was fully retrieved. The source `provenance`
+  // passed in is never mutated and stays what gets returned/stored.
+  const triageProvenance = deriveModelContextProvenance(provenance, emailText.length > TRIAGE_TEXT_CAP);
   const res = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 150,
+    system: buildSourceContentStatusBlock(triageProvenance),
     messages: [
       {
         role: "user",
@@ -37,7 +58,7 @@ A real person asking a real question is NEVER "ignore."
 Email:
 From: ${sender || "(unknown)"}
 Subject: ${subject || "(no subject)"}
-Body: ${emailText.slice(0, 1200)}
+Body: ${emailText.slice(0, TRIAGE_TEXT_CAP)}
 
 Return JSON only, no markdown: {"classification":"actionable"|"needs_caleb"|"ignore","reason":"one sentence"}`,
       },
@@ -225,7 +246,8 @@ async function draftEmailReply(
   emailText: string,
   sender: string,
   subject: string,
-  docs: DocRef[]
+  docs: DocRef[],
+  provenance: EmailBodyProvenance | undefined
 ): Promise<string> {
   // Build the grounding block — the ONLY source of facts the draft may use.
   const groundingBlock =
@@ -235,9 +257,17 @@ async function draftEmailReply(
 ${docs.map((d) => `[${d.title} · p.${d.page}]\n"${d.snippet}"`).join("\n\n")}`
       : "No matching documents were found. Do not assert any facts about the user.";
 
+  // Unlike triageEmail, this call applies no local cap — the full (possibly
+  // already source-truncated) emailText is sent below, so the source
+  // provenance describes this call's actual context accurately as-is. Routed
+  // through the same helper as triageEmail for symmetry and so the "no cap
+  // applied" fact is explicit and structurally identical if a cap is ever
+  // added here later.
+  const draftProvenance = deriveModelContextProvenance(provenance, false);
   const res = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 500,
+    system: buildSourceContentStatusBlock(draftProvenance),
     messages: [
       {
         role: "user",
@@ -274,7 +304,7 @@ Write only the reply body — no greeting header, no subject line, no sign-off.`
 export const handle_email: ToolDefinition = {
   name: "handle_email",
   description:
-    "Triages a pasted email, searches your documents for relevant context, and drafts a proposed reply in your voice. Returns a structured proposal you must approve before anything happens — never sends automatically.",
+    "Triages a pasted email, searches your documents for relevant context, and drafts a proposed reply in your voice. Returns a structured proposal you must approve before anything happens — never sends automatically. email_text should be the COMPLETE message body — if you only have a Gmail preview snippet, call read_gmail_message first to get the full text before calling this.",
   input_schema: {
     type: "object",
     properties: {
@@ -304,19 +334,35 @@ export const handle_email: ToolDefinition = {
   lane: "owner",
   statusLabel: "reading your email…",
   execute: async (input, ctx) => {
-    const emailText = typeof input.email_text === "string" ? input.email_text.trim() : "";
-    if (!emailText) return JSON.stringify({ error: "email_text is required" });
-
+    const rawEmailText = typeof input.email_text === "string" ? input.email_text.trim() : "";
     const sender = typeof input.sender === "string" ? input.sender.trim() : "";
     const subject = typeof input.subject === "string" ? input.subject.trim() : "";
     const gmailThreadId = typeof input.gmail_thread_id === "string" ? input.gmail_thread_id.trim() : undefined;
     const gmailMessageId = typeof input.gmail_message_id === "string" ? input.gmail_message_id.trim() : undefined;
 
+    // Trust boundary: when a trusted cache entry exists for gmail_message_id,
+    // its EXACT retrieved text overrides whatever email_text the model
+    // supplied here — not just the provenance label. This structurally
+    // prevents the model from altering, paraphrasing, truncating, or
+    // prompt-injection-altering the text between a genuine read_gmail_message
+    // fetch and this call. See lib/gmail.ts:resolveTrustedEmailContent.
+    const { text: emailText, provenance: bodyProvenance, usedTrustedCachedText, textHash } =
+      resolveTrustedEmailContent(input, rawEmailText, ctx);
+
+    if (!emailText) return JSON.stringify({ error: "email_text is required" });
+
+    // Content-free observability record: an id and a boolean/hash, never text.
+    console.log(
+      `[handle_email] gmail_message_id=${gmailMessageId ?? "none"} ` +
+        `used_trusted_cached_text=${usedTrustedCachedText}` +
+        (textHash ? ` text_hash=${textHash}` : "")
+    );
+
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
     // TRIAGE
     ctx.onStatus?.("Triage request");
-    const { classification, reason } = await triageEmail(client, emailText, sender, subject);
+    const { classification, reason } = await triageEmail(client, emailText, sender, subject, bodyProvenance);
 
     // GATHER & DRAFT (only when actionable)
     let matchedDocs: DocRef[] = [];
@@ -330,7 +376,7 @@ export const handle_email: ToolDefinition = {
       matchedDocs = await gatherDocuments(llmQueries);
 
       ctx.onStatus?.("Draft response");
-      draftReply = await draftEmailReply(client, emailText, sender, subject, matchedDocs);
+      draftReply = await draftEmailReply(client, emailText, sender, subject, matchedDocs, bodyProvenance);
     }
 
     ctx.onStatus?.("Wait for approval");
@@ -361,6 +407,7 @@ export const handle_email: ToolDefinition = {
       in_reply_to_id: gmailMessageId,
       attachment_doc_ids: dedupedDocs.map((d) => d.doc_id).filter((id): id is string => !!id),
       needs_approval: true,
+      body_provenance: bodyProvenance,
     };
 
     void logOwnerAction("handle_email", { classification, sender, subject });

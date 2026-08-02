@@ -1,3 +1,5 @@
+import type { EmailBodyProvenance } from "@/lib/gmail";
+
 // A single step in the retrieval trace panel (one per status event during a run).
 export type TraceStep = {
   label: string;
@@ -59,6 +61,11 @@ export interface EmailProposal {
   in_reply_to_id?: string;     // Gmail messageId for In-Reply-To header
   attachment_doc_ids?: string[]; // Supabase doc UUIDs matching suggested_attachments[]
   needs_approval: true;
+  // Completeness of the email_text handle_email actually triaged/drafted from
+  // (see lib/gmail.ts EmailBodyProvenance) — undefined only when the caller
+  // supplied no provenance (interactive/legacy path). Never fabricated as
+  // "full" when absent; a null/undefined value here means unknown, not full.
+  body_provenance?: EmailBodyProvenance;
 }
 
 // UI message — what the thread renders
