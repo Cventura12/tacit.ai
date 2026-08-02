@@ -8,6 +8,15 @@ import {
   resolveTrustedEmailContent,
   deriveModelContextProvenance,
 } from "@/lib/gmail";
+import {
+  type DocRef,
+  type QueryResult,
+  selectRelevantDocuments,
+  classifySensitiveDocument,
+  emailExplicitlyMentionsSensitiveCategory,
+  buildGroundingBlock,
+  buildDraftUserMessage,
+} from "./handle_email_grounding";
 import Anthropic from "@anthropic-ai/sdk";
 
 // Triage only classifies (actionable/needs_caleb/ignore) — it doesn't need the
@@ -80,13 +89,19 @@ Return JSON only, no markdown: {"classification":"actionable"|"needs_caleb"|"ign
   return { classification: "needs_caleb", reason: "Could not auto-classify — review manually." };
 }
 
-// DocRef carries the actual retrieved excerpt so the draft is grounded in
-// document text, not inferred from the email's wording.
-type DocRef = { doc_id: string; title: string; page: number; snippet: string; highlight: string };
+// DocRef (imported from ./handle_email_grounding) carries the actual
+// retrieved excerpt so the draft is grounded in document text, not inferred
+// from the email's wording.
 
 // Fixed queries that run on EVERY handle_email call regardless of what the LLM
 // generates. Short form-number tokens are OCR-stable and reliably match the
-// indexed text even when OCR quality is imperfect.
+// indexed text even when OCR quality is imperfect. Crucially, a document
+// found ONLY via one of these — never independently by an LLM-generated,
+// email-content-derived query — is not treated as grounded; see
+// selectRelevantDocuments in ./handle_email_grounding for why (this is the
+// fix for the Tennessee Tech housing incident, where these immigration terms
+// matched the corpus's I-360 document regardless of the email's actual
+// topic).
 const FIXED_QUERIES: readonly string[] = [
   "I-797",
   "I-360",
@@ -96,24 +111,6 @@ const FIXED_QUERIES: readonly string[] = [
   "deferred action",
   "approval notice",
 ];
-
-// Strip ts_headline markup before passing to the model or storing.
-function cleanSnippet(raw: string): string {
-  return raw.replace(/<\/?mark>/g, "").replace(/\s+/g, " ").trim();
-}
-
-// Extract the text inside <mark>…</mark> tags — the exact matched span for
-// PDF highlight. Multiple spans are joined with a space.
-function extractHighlight(raw: string): string {
-  const spans: string[] = [];
-  const re = /<mark>(.*?)<\/mark>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) {
-    const s = m[1]?.trim();
-    if (s) spans.push(s);
-  }
-  return spans.join(" ");
-}
 
 // generateSearchQueries expands the email intent into multiple FTS-friendly
 // queries covering BOTH the email's surface language AND the technical
@@ -161,8 +158,11 @@ Return a JSON array of short strings only, no markdown: ["q1","q2",...]`,
 }
 
 async function gatherDocuments(llmQueries: string[]): Promise<DocRef[]> {
-  // Merge fixed + LLM queries, deduplicated. Fixed queries run first so their
-  // hits rank above LLM query hits when scores are equal.
+  // Merge fixed + LLM queries, deduplicated. A query string independently
+  // produced by the LLM (even if it happens to match a fixed one verbatim)
+  // is tagged "llm" — the LLM generating it FROM the email's actual content
+  // is itself a relevance signal that a hardcoded fixed query never carries.
+  const llmQuerySet = new Set(llmQueries);
   const allQueries = [...new Set([...FIXED_QUERIES, ...llmQueries])];
   console.log(
     `[handle_email] ${allQueries.length} queries total` +
@@ -171,71 +171,38 @@ async function gatherDocuments(llmQueries: string[]): Promise<DocRef[]> {
   );
 
   // Run all queries in parallel; limit per query so the total set stays manageable.
-  const perQueryHits = await Promise.all(
-    allQueries.map(async (q) => {
+  const perQueryResults: QueryResult[] = await Promise.all(
+    allQueries.map(async (q): Promise<QueryResult> => {
+      const origin = llmQuerySet.has(q) ? "llm" : "fixed";
       try {
         const { hits } = await search(q, 8);
         console.log(
-          `[handle_email] query "${q}" → ${hits.length} hit(s):`,
+          `[handle_email] query "${q}" (${origin}) → ${hits.length} hit(s):`,
           hits.map((h) => `${h.title} p.${h.page_number} doc_id=${h.doc_id} score=${h.score}`)
         );
-        return hits;
+        return { query: q, origin, hits };
       } catch (err) {
         console.warn(`[handle_email] search error for query "${q}":`, err);
-        return [];
+        return { query: q, origin, hits: [] };
       }
     })
   );
 
-  // Log every raw hit before merge so we can see exactly what came back.
-  const allRawHits = perQueryHits.flat();
+  // Log every raw hit before filtering so we can see exactly what came back.
+  const allRawHits = perQueryResults.flatMap((r) => r.hits);
   console.log(
-    `[handle_email] ${allRawHits.length} raw hit(s) before merge:`,
+    `[handle_email] ${allRawHits.length} raw hit(s) before relevance filtering:`,
     allRawHits.map((h) => `doc_id=${h.doc_id} title="${h.title}" p=${h.page_number} score=${h.score}`)
   );
 
-  // Step 1: deduplicate pages — one entry per title:page_number, highest score wins.
-  // Keying on title (not doc_id) so this is robust against undefined doc_id from
-  // older schema versions. Normalize score to avoid undefined/null comparison bugs.
-  const seenPages = new Map<string, { ref: DocRef; score: number }>();
-  for (const hits of perQueryHits) {
-    for (const h of hits) {
-      const pageKey = `${h.title}:${h.page_number}`;
-      const score = typeof h.score === "number" ? h.score : 0;
-      const existing = seenPages.get(pageKey);
-      if (!existing || score > existing.score) {
-        seenPages.set(pageKey, {
-          ref: {
-            doc_id: h.doc_id ?? "",
-            title: h.title,
-            page: h.page_number,
-            snippet: cleanSnippet(h.snippet),
-            highlight: extractHighlight(h.snippet),
-          },
-          score,
-        });
-      }
-    }
-  }
-
-  // Step 2: group by document title — keep only the highest-scored page per document.
-  // This guarantees EVERY document that had any hit appears in the result,
-  // regardless of how many pages a single high-scoring document matches.
-  // Without this, slice(0, 8) on pages lets one multi-page doc fill all slots.
-  const byTitle = new Map<string, { ref: DocRef; score: number }>();
-  for (const { ref, score } of seenPages.values()) {
-    const existing = byTitle.get(ref.title);
-    if (!existing || score > existing.score) {
-      byTitle.set(ref.title, { ref, score });
-    }
-  }
-
-  const merged = Array.from(byTitle.values())
-    .sort((a, b) => b.score - a.score)
-    .map(({ ref }) => ref);
+  // Score threshold + "found by at least one LLM-generated (email-derived)
+  // query" requirement — see selectRelevantDocuments in
+  // ./handle_email_grounding for the full rationale. A document found ONLY
+  // via fixed queries is dropped here, not merely deprioritized.
+  const merged = selectRelevantDocuments(perQueryResults);
 
   console.log(
-    `[handle_email] ${merged.length} unique document(s) after merge:`,
+    `[handle_email] ${merged.length} relevant document(s) after filtering:`,
     merged.map((d) => `${d.title} p.${d.page}`)
   );
   return merged;
@@ -249,13 +216,10 @@ async function draftEmailReply(
   docs: DocRef[],
   provenance: EmailBodyProvenance | undefined
 ): Promise<string> {
-  // Build the grounding block — the ONLY source of facts the draft may use.
-  const groundingBlock =
-    docs.length > 0
-      ? `RETRIEVED DOCUMENT EXCERPTS — the ONLY facts you may assert about the user:
-
-${docs.map((d) => `[${d.title} · p.${d.page}]\n"${d.snippet}"`).join("\n\n")}`
-      : "No matching documents were found. Do not assert any facts about the user.";
+  // Build the grounding block — the ONLY source of facts the draft may use
+  // about the user. When zero documents are relevant, this explicitly says
+  // so rather than the model silently having nothing and improvising.
+  const groundingBlock = buildGroundingBlock(docs);
 
   // Unlike triageEmail, this call applies no local cap — the full (possibly
   // already source-truncated) emailText is sent below, so the source
@@ -271,27 +235,7 @@ ${docs.map((d) => `[${d.title} · p.${d.page}]\n"${d.snippet}"`).join("\n\n")}`
     messages: [
       {
         role: "user",
-        content: `Draft a reply email for Caleb Ventura based strictly on retrieved document excerpts.
-
-${groundingBlock}
-
-HARD RULES — each is a failure condition if violated:
-1. Never state or imply the user's citizenship, immigration status, eligibility, or any personal legal fact unless a retrieved excerpt above explicitly says it word for word.
-2. Never infer facts from the email's wording, from what the sender seems to assume, or from general knowledge about immigration law.
-3. If the email asks about a fact not present in the retrieved excerpts, write [needs your input: describe what's missing] as a placeholder rather than guessing.
-4. If you reference a document, name it exactly as it appears in the headings above and cite the page number.
-5. Do not assert that the user "is" or "is not" a citizen, permanent resident, or any status — only quote what the document says.
-6. When describing what a document IS, use only the specific form name, type, and classification found in its retrieved excerpt — e.g. "Special Immigrant Juvenile" if the excerpt says that, or "category C14" if the excerpt says that. Never use generic phrases like "approval of a nonimmigrant petition" that don't appear in the retrieved text.
-
-Voice: Caleb's casual, lowercase, direct style. Short sentences. If a document is relevant, say you're attaching it and name it exactly.
-
-Email to reply to:
-From: ${sender || "(unknown)"}
-Subject: ${subject || "(no subject)"}
-Body:
-${emailText}
-
-Write only the reply body — no greeting header, no subject line, no sign-off.`,
+        content: buildDraftUserMessage(emailText, sender, subject, groundingBlock),
       },
     ],
   });
@@ -381,14 +325,27 @@ export const handle_email: ToolDefinition = {
 
     ctx.onStatus?.("Wait for approval");
 
-    // Dedupe matched_documents by title — keep the highest-scored page per document
-    // (matchedDocs is already sorted score-desc from gatherDocuments, so first wins).
-    // The full matchedDocs array was already passed to draftEmailReply for context.
-    const seenTitles = new Set<string>();
-    const dedupedDocs = matchedDocs.filter((d) => {
-      if (seenTitles.has(d.title)) return false;
-      seenTitles.add(d.title);
-      return true;
+    // matchedDocs is already deduped by title and relevance-filtered by
+    // gatherDocuments/selectRelevantDocuments — these remain the grounding
+    // sources shown as citations. The full array was already passed to
+    // draftEmailReply for context.
+    const dedupedDocs = matchedDocs;
+
+    // Sensitive-document deny-by-default gate for SUGGESTED ATTACHMENTS only
+    // — never for citations. A document classified as immigration/legal-
+    // status/identity/medical/financial/government is excluded from
+    // suggested_attachments/attachment_doc_ids unless the email's own text
+    // explicitly mentions that category — the "user has not already supplied
+    // it" and "Tacit explains why" conditions from the spec cannot currently
+    // be verified here (this tool has no visibility into the source email's
+    // own attachments), so this is a necessary-but-not-sufficient, safety-
+    // biased gate, not a complete implementation of all three conditions.
+    // This is what stops an I-360 approval notice from being suggested as an
+    // attachment on a housing-application reply.
+    const emailMentionsSensitiveCategory = emailExplicitlyMentionsSensitiveCategory(emailText);
+    const attachmentCandidates = dedupedDocs.filter((d) => {
+      if (!classifySensitiveDocument(d.title, d.doc_type)) return true;
+      return emailMentionsSensitiveCategory;
     });
 
     // Build the reply subject: prepend "Re: " if not already present.
@@ -400,12 +357,12 @@ export const handle_email: ToolDefinition = {
       reason,
       matched_documents: dedupedDocs,
       draft_reply: draftReply,
-      suggested_attachments: [...seenTitles],
+      suggested_attachments: attachmentCandidates.map((d) => d.title),
       recipient: sender || undefined,
       reply_subject: replySubject || undefined,
       thread_id: gmailThreadId,
       in_reply_to_id: gmailMessageId,
-      attachment_doc_ids: dedupedDocs.map((d) => d.doc_id).filter((id): id is string => !!id),
+      attachment_doc_ids: attachmentCandidates.map((d) => d.doc_id).filter((id): id is string => !!id),
       needs_approval: true,
       body_provenance: bodyProvenance,
     };

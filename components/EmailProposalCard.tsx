@@ -508,8 +508,11 @@ export function EmailProposalCard({
               <span className="ml-auto" style={{ color: "#4ade80" }}><IcoCheck /></span>
             </div>
             <p className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.65)" }}>
-              Tacit recommends; you decide. Every claim traces to a cited page. It surfaces
-              conditions, not a verdict — it does not conclude your eligibility or legal status.
+              Tacit recommends; you decide.{" "}
+              {sourceCount > 0
+                ? "Every claim traces to a cited page."
+                : "Grounded in the retrieved email — no internal document was relevant enough to cite."}{" "}
+              It surfaces conditions, not a verdict — it does not conclude your eligibility or legal status.
             </p>
           </div>
 
