@@ -3,8 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SYSTEM_PROMPT, OWNER_SYSTEM_PROMPT_EXTENSION } from "@/lib/knowledge";
 import { TOOL_REGISTRY } from "@/lib/tools/registry";
 import type { ToolDefinition } from "@/lib/tools/registry";
+import type { TrustedGmailMessage } from "@/lib/gmail";
 import type { StreamEvent, EmailProposal } from "@/lib/types";
 import { getEnabledToolNames, getEnabledMcpConnectors } from "@/lib/connectors";
+import { buildSafeToolLogSummary } from "@/lib/tools/tool-log-summary";
 import { buildMcpTools } from "@/lib/mcp";
 import { checkRateLimit } from "@/lib/ratelimit";
 import { isDbConfigured, getDb } from "@/lib/db";
@@ -78,6 +80,20 @@ async function runAgentLoop(
   let toolSeq = 0;
   let responseText = "";
   let loopError: string | undefined;
+
+  // Request-scoped, trusted store binding gmail_message_id to the EXACT text
+  // that was fetched plus its provenance (never provenance alone — see
+  // lib/gmail.ts:resolveTrustedEmailContent for why): written only by
+  // read_gmail_message's execute() after a genuine fetch, keyed by
+  // gmail_message_id; read only by handle_email's execute(), which uses the
+  // cached text itself (never the model's own email_text argument) whenever a
+  // cache entry exists. The SAME Map reference is passed to every tool call in
+  // this loop, so a read_gmail_message call earlier in the conversation turn
+  // is visible to a handle_email call later in the same turn — and a fresh Map
+  // is created per request/turn (this function is invoked once per POST), so
+  // nothing here is ever shared across requests or owners. Never derived from
+  // or exposed to the model's own tool-call JSON.
+  const gmailTrustedMessageCache = new Map<string, TrustedGmailMessage>();
 
   if (isDbConfigured()) {
     try {
@@ -196,14 +212,24 @@ async function runAgentLoop(
           let result: string;
           let toolSuccess = true;
           let toolErr: string | undefined;
+          // Set only for content-bearing tools (read_gmail_message, read_gmail);
+          // undefined for every other tool, which keeps its existing slice-based
+          // logging at both use sites below.
+          let safeLogSummary: string | undefined;
 
           try {
             result = await tool.execute(tu.input as Record<string, unknown>, {
               ip,
               sessionId,
               onStatus: (label: string) => ctrl.enqueue(sse({ type: "status", label })),
+              gmailTrustedMessageCache,
             });
-            console.log(`[agent] "${tool.name}" succeeded:`, result.slice(0, 300));
+            // Content-bearing tools (read_gmail_message, read_gmail) get a
+            // safe, fixed-field summary instead of a slice of the raw JSON —
+            // see lib/tools/tool-log-summary.ts. Every other tool keeps its
+            // prior slice-based logging, unchanged.
+            safeLogSummary = buildSafeToolLogSummary(tu.name, result);
+            console.log(`[agent] "${tool.name}" succeeded:`, safeLogSummary ?? result.slice(0, 300));
           } catch (err) {
             console.error(`[agent] "${tool.name}" threw:`, err);
             toolSuccess = false;
@@ -250,7 +276,7 @@ async function runAgentLoop(
                   run_id: runId,
                   tool_name: tu.name,
                   input: tu.input as Record<string, unknown>,
-                  output_summary: result.slice(0, 500),
+                  output_summary: safeLogSummary ?? result.slice(0, 500),
                   duration_ms: toolDuration,
                   success: toolSuccess,
                   error: toolErr ?? null,

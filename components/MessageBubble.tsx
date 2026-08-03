@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import type { Message } from "@/lib/types";
+import { countGenuineSources } from "@/lib/email-proposal";
 import { EmailProposalCard } from "./EmailProposalCard";
 import { TacitMark } from "./TacitMark";
 import { TraceDisclosure } from "./TraceDisclosure";
@@ -17,8 +18,9 @@ export function MessageBubble({ message }: { message: Message }) {
   if (message.role === "them") {
     const proposal = message.proposal;
     const chip = proposal ? CLASSIFICATION_CHIP[proposal.classification] : null;
-    const citedCount = proposal?.matched_documents.length ?? 0;
+    const citedCount = countGenuineSources(proposal?.matched_documents);
     const hasDraft = !!proposal?.draft_reply;
+    const replyOptional = proposal?.classification === "actionable" && proposal?.reply_required === false;
 
     return (
       <div className="flex gap-2.5 items-start">
@@ -63,6 +65,14 @@ export function MessageBubble({ message }: { message: Message }) {
                 style={{ background: "var(--green-tint)", color: "var(--green-dark)" }}
               >
                 Draft ready
+              </span>
+            )}
+            {replyOptional && (
+              <span
+                className="px-2.5 py-[4px] rounded-full text-[11px]"
+                style={{ background: "var(--bubble)", color: "var(--gray-1)", border: "0.5px solid var(--line)" }}
+              >
+                No reply needed
               </span>
             )}
           </div>

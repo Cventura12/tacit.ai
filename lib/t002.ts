@@ -7,6 +7,25 @@ type Db = ReturnType<typeof getDb>;
 
 export const T002_OBSERVATION_HOURS = Number(process.env.T002_OBSERVATION_HOURS ?? 168);
 
+// ── Pre-enrollment body-completeness boundary (eligibility mirror) ───────────
+// The actual eligibility gate is enforced inside t002_try_enroll() in
+// supabase/migrations-11-t002-body-completeness-boundary.sql, under the same
+// row lock that already serializes the cap check — this repo has no live test
+// database, so that SQL cannot be exercised directly from here. This function
+// mirrors the exact same comparison in TypeScript so the eligibility LOGIC
+// (inclusive >=, null-is-never-eligible) is directly unit-testable; it is not
+// itself called anywhere in the enrollment path — the SQL function is the real
+// enforcement point. Kept in sync deliberately: if this comparison ever needs
+// to change, migrations-11's SQL must change identically.
+export function isEligibleForEnrollment(
+  proposalCreatedAt: string | null,
+  boundaryAt: string | null
+): boolean {
+  if (boundaryAt === null) return false; // boundary not yet activated
+  if (proposalCreatedAt === null) return false; // unknown creation time is never eligible
+  return new Date(proposalCreatedAt).getTime() >= new Date(boundaryAt).getTime();
+}
+
 export const PROPOSAL_EVENT_TYPES = [
   "detected",
   "passed_filter",
@@ -355,6 +374,101 @@ export async function expireOverdueT002Proposals(db: Db): Promise<{ expiredCount
   return { expiredCount: ids.length };
 }
 
+// ── Source-completeness provenance metrics ────────────────────────────────────
+// content_completeness and locally_truncated are stored as separate, orthogonal
+// columns on pending_proposals (see supabase/migrations-10-gmail-body-
+// provenance.sql) — never combined into a stored enum. The groups below are a
+// DASHBOARD PRESENTATION computed here from the two raw columns; nothing about
+// this function's output is persisted anywhere.
+//
+// legacy/unknown is precisely: content_completeness IS NULL, OR
+// content_completeness IS 'full'/'partial' AND locally_truncated IS NULL (the
+// derived full/partial × truncation split needs both dimensions known to place
+// a row — 'snippet_only'/'fetch_failed' don't have a truncation-qualified
+// derived group at all, so a null locally_truncated on those rows does NOT
+// make them legacy/unknown). A null is never coerced to false anywhere here.
+
+interface ProvenanceRow {
+  content_completeness: string | null;
+  locally_truncated: boolean | null;
+}
+
+export interface T002ProvenanceMetrics {
+  // Raw orthogonal dimensions.
+  fullCount: number;
+  partialCount: number;
+  snippetOnlyCount: number;
+  fetchFailedCount: number;
+  locallyTruncatedCount: number; // locally_truncated = true, spans full AND partial
+  notLocallyTruncatedCount: number; // locally_truncated = false (known, not null)
+  legacyUnknownCount: number;
+  // Derived presentation groups (full/partial × truncation only — snippet_only,
+  // fetch_failed, and legacy_unknown above already ARE their own groups).
+  fullNotTruncated: number;
+  fullTruncated: number;
+  partialNotTruncated: number;
+  partialTruncated: number;
+}
+
+export function computeProvenanceMetrics(proposals: ProvenanceRow[]): T002ProvenanceMetrics {
+  let fullCount = 0;
+  let partialCount = 0;
+  let snippetOnlyCount = 0;
+  let fetchFailedCount = 0;
+  let locallyTruncatedCount = 0;
+  let notLocallyTruncatedCount = 0;
+  let legacyUnknownCount = 0;
+  let fullNotTruncated = 0;
+  let fullTruncated = 0;
+  let partialNotTruncated = 0;
+  let partialTruncated = 0;
+
+  for (const p of proposals) {
+    const truncated = p.locally_truncated;
+    if (truncated === true) locallyTruncatedCount++;
+    else if (truncated === false) notLocallyTruncatedCount++;
+    // truncated === null contributes to neither raw truncation count.
+
+    switch (p.content_completeness) {
+      case "full":
+        fullCount++;
+        if (truncated === true) fullTruncated++;
+        else if (truncated === false) fullNotTruncated++;
+        else legacyUnknownCount++; // completeness known, truncation unknown
+        break;
+      case "partial":
+        partialCount++;
+        if (truncated === true) partialTruncated++;
+        else if (truncated === false) partialNotTruncated++;
+        else legacyUnknownCount++; // completeness known, truncation unknown
+        break;
+      case "snippet_only":
+        snippetOnlyCount++;
+        break;
+      case "fetch_failed":
+        fetchFailedCount++;
+        break;
+      default:
+        legacyUnknownCount++; // content_completeness is null
+        break;
+    }
+  }
+
+  return {
+    fullCount,
+    partialCount,
+    snippetOnlyCount,
+    fetchFailedCount,
+    locallyTruncatedCount,
+    notLocallyTruncatedCount,
+    legacyUnknownCount,
+    fullNotTruncated,
+    fullTruncated,
+    partialNotTruncated,
+    partialTruncated,
+  };
+}
+
 // ── Owner-page metrics ────────────────────────────────────────────────────────────
 
 interface PendingProposalMetricRow {
@@ -368,11 +482,18 @@ interface PendingProposalMetricRow {
   first_viewed_at: string | null;
   decision_at: string | null;
   expired_at: string | null;
+  content_completeness: string | null;
+  locally_truncated: boolean | null;
 }
 
 export interface T002Metrics {
   cap: number;
   enrolledCount: number;
+  // Null until t002_activate_body_completeness_boundary() has been run — see
+  // supabase/migrations-11-t002-body-completeness-boundary.sql. While null,
+  // t002_try_enroll() refuses every enrollment attempt; enrolledCount stays 0.
+  bodyCompletenessBoundaryAt: string | null;
+  provenance: T002ProvenanceMetrics;
   statusCounts: { pending: number; sent: number; skipped: number; expired: number; failed: number };
   neverNotifiedCount: number;
   neverViewedCount: number;
@@ -403,11 +524,12 @@ export interface T002Metrics {
 export async function computeT002Metrics(db: Db): Promise<T002Metrics> {
   const { data: counter } = await db
     .from("t002_enrollment_counter")
-    .select("cap, enrolled_count")
+    .select("cap, enrolled_count, body_completeness_boundary_at")
     .eq("id", true)
     .maybeSingle();
   const cap = counter?.cap ?? 0;
   const enrolledCount = counter?.enrolled_count ?? 0;
+  const bodyCompletenessBoundaryAt = counter?.body_completeness_boundary_at ?? null;
 
   const { data: observations } = await db.from("t002_observations").select("proposal_id");
   const enrolledIds = (observations ?? []).map((o) => o.proposal_id);
@@ -417,11 +539,13 @@ export async function computeT002Metrics(db: Db): Promise<T002Metrics> {
     const { data } = await db
       .from("pending_proposals")
       .select(
-        "id, status, outcome, source_received_at, source_received_at_inferred, notification_attempted_at, notification_accepted_at, first_viewed_at, decision_at, expired_at"
+        "id, status, outcome, source_received_at, source_received_at_inferred, notification_attempted_at, notification_accepted_at, first_viewed_at, decision_at, expired_at, content_completeness, locally_truncated"
       )
       .in("id", enrolledIds);
     proposals = data ?? [];
   }
+
+  const provenance = computeProvenanceMetrics(proposals);
 
   const statusCounts = { pending: 0, sent: 0, skipped: 0, expired: 0, failed: 0 };
   let neverNotifiedCount = 0;
@@ -483,6 +607,8 @@ export async function computeT002Metrics(db: Db): Promise<T002Metrics> {
   return {
     cap,
     enrolledCount,
+    bodyCompletenessBoundaryAt,
+    provenance,
     statusCounts,
     neverNotifiedCount,
     neverViewedCount,
