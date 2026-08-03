@@ -7,6 +7,7 @@ import { handle_email } from "@/lib/tools/owner/handle_email";
 import { getDb } from "@/lib/db";
 import { sendMessageToOwner } from "@/lib/email";
 import { logFilterRejection, logProposalEvent, expireOverdueT002Proposals } from "@/lib/t002";
+import { resolveReplyRequiredForInsert } from "@/lib/email-proposal";
 import type { EmailProposal } from "@/lib/types";
 
 export interface WatchResult {
@@ -139,6 +140,11 @@ export async function runInboxWatch(): Promise<WatchResult> {
         detected_at: filterTimestamp,
         filtered_at: filterTimestamp,
         proposal_created_at: new Date().toISOString(),
+        // Written explicitly from this same handle_email result — never
+        // re-derived, never defaulted to true just because the proposal is
+        // "actionable." See resolveReplyRequiredForInsert for the
+        // malformed/missing-value fallback (null, not a fabricated default).
+        reply_required: resolveReplyRequiredForInsert(proposal.reply_required),
         ...provenanceToInsertFields(proposal.body_provenance),
       })
       .select("id")

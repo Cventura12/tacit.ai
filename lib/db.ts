@@ -155,6 +155,12 @@ export type Database = {
           body_parts_failed: number | null;
           body_original_character_count: number | null;
           body_error_codes: string[] | null;
+          // NULL on every row that predates migrations-12 (no DEFAULT, no
+          // backfill — see that migration) — legacy/unknown, never true or
+          // false. Only rows inserted after this column exists carry a real
+          // value, written explicitly from the same handle_email result that
+          // produced draft_reply.
+          reply_required: boolean | null;
         };
         Insert: {
           id?: string;
@@ -188,6 +194,7 @@ export type Database = {
           body_parts_failed?: number | null;
           body_original_character_count?: number | null;
           body_error_codes?: string[] | null;
+          reply_required?: boolean | null;
         };
         Update: {
           status?: string;

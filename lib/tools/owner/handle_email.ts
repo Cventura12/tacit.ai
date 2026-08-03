@@ -16,6 +16,7 @@ import {
   emailExplicitlyMentionsSensitiveCategory,
   buildGroundingBlock,
   buildDraftUserMessage,
+  buildTriageUserMessage,
 } from "./handle_email_grounding";
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -35,7 +36,7 @@ async function triageEmail(
   sender: string,
   subject: string,
   provenance: EmailBodyProvenance | undefined
-): Promise<{ classification: EmailProposal["classification"]; reason: string }> {
+): Promise<{ classification: EmailProposal["classification"]; reason: string; replyRequired: boolean }> {
   // Model-CONTEXT completeness for this specific call, not source provenance —
   // if this call's own cap actually cut the text, the model must be told so,
   // even when the source itself was fully retrieved. The source `provenance`
@@ -43,33 +44,12 @@ async function triageEmail(
   const triageProvenance = deriveModelContextProvenance(provenance, emailText.length > TRIAGE_TEXT_CAP);
   const res = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 150,
+    max_tokens: 200,
     system: buildSourceContentStatusBlock(triageProvenance),
     messages: [
       {
         role: "user",
-        content: `You are triaging email for Caleb Ventura. Your default is to draft a reply — refusals waste his time.
-
-DEFAULT: classify as "actionable" unless a specific exception below applies. This covers any email from a real person asking any question or requesting any reply — about his project, documents, schedule, preferences, status, or anything else. Topic doesn't matter. The draft step handles grounding; triage only decides whether to attempt a draft.
-
-Classify as "needs_caleb" ONLY when the email requires a genuine decision with real stakes that only he can make:
-- Accepting or declining an offer (job, contract, enrollment slot, proposal)
-- Committing money or signing something with legal consequence
-- Choosing between meaningful options where the answer isn't obvious from context (e.g. "which of these two job offers do you prefer?")
-- A personal opinion or judgment call no one else can make for him
-NOTE: "which email should I use for you?" is NOT needs_caleb if context makes the answer obvious — draft it. When in doubt, choose actionable.
-
-Classify as "ignore" ONLY when:
-- True spam, mass marketing, or newsletters
-- Fully automated no-reply notification (no human waiting on a response)
-A real person asking a real question is NEVER "ignore."
-
-Email:
-From: ${sender || "(unknown)"}
-Subject: ${subject || "(no subject)"}
-Body: ${emailText.slice(0, TRIAGE_TEXT_CAP)}
-
-Return JSON only, no markdown: {"classification":"actionable"|"needs_caleb"|"ignore","reason":"one sentence"}`,
+        content: buildTriageUserMessage(emailText, sender, subject, TRIAGE_TEXT_CAP),
       },
     ],
   });
@@ -78,15 +58,23 @@ Return JSON only, no markdown: {"classification":"actionable"|"needs_caleb"|"ign
   try {
     // Strip potential markdown fences before parsing
     const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-    const parsed = JSON.parse(clean) as { classification: string; reason: string };
+    const parsed = JSON.parse(clean) as { classification: string; reply_required?: unknown; reason: string };
     const cls = parsed.classification;
     if (cls === "actionable" || cls === "needs_caleb" || cls === "ignore") {
-      return { classification: cls, reason: String(parsed.reason ?? "") };
+      // Safe default when the model omits or malforms this field: true —
+      // preserves prior behavior (always draft a reply) rather than silently
+      // skipping a reply that was actually needed.
+      const replyRequired = typeof parsed.reply_required === "boolean" ? parsed.reply_required : true;
+      return { classification: cls, reason: String(parsed.reason ?? ""), replyRequired };
     }
   } catch {
     // fall through to default
   }
-  return { classification: "needs_caleb", reason: "Could not auto-classify — review manually." };
+  return {
+    classification: "needs_caleb",
+    reason: "Could not auto-classify — review manually.",
+    replyRequired: true,
+  };
 }
 
 // DocRef (imported from ./handle_email_grounding) carries the actual
@@ -306,9 +294,28 @@ export const handle_email: ToolDefinition = {
 
     // TRIAGE
     ctx.onStatus?.("Triage request");
-    const { classification, reason } = await triageEmail(client, emailText, sender, subject, bodyProvenance);
+    const { classification, reason, replyRequired } = await triageEmail(
+      client,
+      emailText,
+      sender,
+      subject,
+      bodyProvenance
+    );
 
-    // GATHER & DRAFT (only when actionable)
+    // ACTION GROUNDING vs. REPLY DRAFTING — deliberately separate concerns,
+    // gated independently:
+    //   - Document search/retrieval runs for every "actionable" email,
+    //     regardless of replyRequired. A non-reply action (e.g. "complete
+    //     your application in the portal") can still genuinely need internal
+    //     documents to determine or explain the action correctly — gating
+    //     retrieval on replyRequired would silently starve those actions of
+    //     grounding they may need, which is not what replyRequired means.
+    //   - Reply DRAFTING is gated on replyRequired specifically: when the
+    //     required action happens elsewhere (a portal, a payment page, in
+    //     person), there is no reply to write, and forcing a draft-reply
+    //     workflow onto an action that doesn't need one produces an empty or
+    //     invented reply. `reason` (from triage) already carries the
+    //     concrete action.
     let matchedDocs: DocRef[] = [];
     let draftReply: string | null = null;
 
@@ -319,34 +326,45 @@ export const handle_email: ToolDefinition = {
       ctx.onStatus?.("Search documents");
       matchedDocs = await gatherDocuments(llmQueries);
 
-      ctx.onStatus?.("Draft response");
-      draftReply = await draftEmailReply(client, emailText, sender, subject, matchedDocs, bodyProvenance);
+      if (replyRequired) {
+        ctx.onStatus?.("Draft response");
+        draftReply = await draftEmailReply(client, emailText, sender, subject, matchedDocs, bodyProvenance);
+      }
     }
 
     ctx.onStatus?.("Wait for approval");
 
     // matchedDocs is already deduped by title and relevance-filtered by
     // gatherDocuments/selectRelevantDocuments — these remain the grounding
-    // sources shown as citations. The full array was already passed to
-    // draftEmailReply for context.
+    // sources shown as citations, present regardless of replyRequired (see
+    // above). The full array was already passed to draftEmailReply for
+    // context when a draft was produced.
     const dedupedDocs = matchedDocs;
 
-    // Sensitive-document deny-by-default gate for SUGGESTED ATTACHMENTS only
-    // — never for citations. A document classified as immigration/legal-
-    // status/identity/medical/financial/government is excluded from
-    // suggested_attachments/attachment_doc_ids unless the email's own text
-    // explicitly mentions that category — the "user has not already supplied
-    // it" and "Tacit explains why" conditions from the spec cannot currently
-    // be verified here (this tool has no visibility into the source email's
-    // own attachments), so this is a necessary-but-not-sufficient, safety-
-    // biased gate, not a complete implementation of all three conditions.
-    // This is what stops an I-360 approval notice from being suggested as an
-    // attachment on a housing-application reply.
-    const emailMentionsSensitiveCategory = emailExplicitlyMentionsSensitiveCategory(emailText);
-    const attachmentCandidates = dedupedDocs.filter((d) => {
-      if (!classifySensitiveDocument(d.title, d.doc_type)) return true;
-      return emailMentionsSensitiveCategory;
-    });
+    // Suggested ATTACHMENTS are a stricter, separate gate from citations:
+    //   1. Never suggested at all when replyRequired is false — there is no
+    //      reply being sent, so there is nothing to attach a file TO.
+    //      Citations above are unaffected; grounding can inform the
+    //      recommended action without there being a reply to attach to.
+    //   2. Even when a reply IS required, sensitive documents (immigration/
+    //      legal-status/identity/medical/financial/government) are
+    //      deny-by-default: excluded unless the email's own text explicitly
+    //      mentions that category. The "user has not already supplied it"
+    //      and "Tacit explains why" conditions from the spec cannot
+    //      currently be verified here (this tool has no visibility into the
+    //      source email's own attachments), so this is a
+    //      necessary-but-not-sufficient, safety-biased gate, not a complete
+    //      implementation of all three conditions. This is what stops an
+    //      I-360 approval notice from being suggested as an attachment on a
+    //      housing-application reply.
+    let attachmentCandidates: DocRef[] = [];
+    if (replyRequired) {
+      const emailMentionsSensitiveCategory = emailExplicitlyMentionsSensitiveCategory(emailText);
+      attachmentCandidates = dedupedDocs.filter((d) => {
+        if (!classifySensitiveDocument(d.title, d.doc_type)) return true;
+        return emailMentionsSensitiveCategory;
+      });
+    }
 
     // Build the reply subject: prepend "Re: " if not already present.
     const replySubject =
@@ -355,6 +373,7 @@ export const handle_email: ToolDefinition = {
     const proposal: EmailProposal = {
       classification,
       reason,
+      reply_required: replyRequired,
       matched_documents: dedupedDocs,
       draft_reply: draftReply,
       suggested_attachments: attachmentCandidates.map((d) => d.title),

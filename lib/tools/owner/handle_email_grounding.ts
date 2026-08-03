@@ -183,6 +183,56 @@ export function emailExplicitlyMentionsSensitiveCategory(emailText: string): boo
   return SENSITIVE_KEYWORD_PATTERN.test(emailText);
 }
 
+// ── Triage prompt: reply-required vs. action-required (pure — testable) ──────
+// Origin: a Tennessee Tech housing email ("please complete your application
+// as soon as possible") was classified "ignore" with the model reasoning
+// "nobody is waiting on a reply" / "nothing actionable is being asked." The
+// prior prompt classified "ignore" for any "fully automated no-reply
+// notification (no human waiting on a response)" and framed "actionable"
+// around "asking any question or requesting any reply" — both conflate
+// reply-required with action-required, which are independent questions. An
+// automated, no-reply notice that demands a portal action is still
+// actionable; it just doesn't need a reply email.
+export function buildTriageUserMessage(emailText: string, sender: string, subject: string, textCap: number): string {
+  return `You are triaging email for Caleb Ventura. Your job is to figure out what needs to happen — not just whether someone is waiting on a reply.
+
+Two independent questions decide the outcome:
+1. Does ANYTHING need to happen in response to this email — any action, by Caleb or through some other channel? This drives classification.
+2. Does a REPLY EMAIL need to be sent back? This drives reply_required, and is answered separately from #1.
+
+An action can be required even when:
+- the sender is automated or no-reply
+- no human is waiting on a reply
+- the required action happens through a portal, website, payment page, or in person — not by email
+- no question is posed
+- no exact deadline is given
+
+DEFAULT: classify as "actionable" whenever the email states or clearly implies that something needs to be done in response to it — by Caleb, in any form. This includes (not exhaustive): completing an application, submitting a form, uploading documents, logging into a portal, making a payment, scheduling something, verifying information, meeting a stated requirement, or taking any other action, online or offline. "Automated" does NOT mean "ignore." "No reply required" does NOT mean "no action required."
+
+Set reply_required to true only when sending a reply EMAIL is actually the right response — someone is asking a question, waiting to hear back, or a written reply accomplishes what's needed. Set reply_required to false when the real required action happens somewhere else (a portal, a payment page, an in-person step) and a reply email wouldn't accomplish anything on its own — the email is STILL "actionable" in that case; only reply_required changes. When reply_required is false, "reason" should describe the concrete action and where/how it happens (e.g. "log into the housing portal and complete the application — no reply needed").
+
+Classify as "needs_caleb" ONLY when the email requires a genuine decision with real stakes that only he can make:
+- Accepting or declining an offer (job, contract, enrollment slot, proposal)
+- Committing money or signing something with legal consequence
+- Choosing between meaningful options where the answer isn't obvious from context (e.g. "which of these two job offers do you prefer?")
+- A personal opinion or judgment call no one else can make for him
+NOTE: "which email should I use for you?" is NOT needs_caleb if context makes the answer obvious — draft it. When in doubt, choose actionable.
+
+Classify as "ignore" ONLY when ALL of the following hold:
+- No action is requested or implied — not by Caleb, not automatically, not through any channel
+- No meaningful decision is presented
+- No deadline, requirement, risk, or follow-up is mentioned
+- The message is purely informational or promotional (true spam, mass marketing, newsletters, a shipping confirmation with nothing left to do, etc.)
+An explicit instruction such as "please complete your application" is NEVER "ignore" — not even from a fully automated sender with no reply expected. That is "actionable" with reply_required:false.
+
+Email:
+From: ${sender || "(unknown)"}
+Subject: ${subject || "(no subject)"}
+Body: ${emailText.slice(0, textCap)}
+
+Return JSON only, no markdown: {"classification":"actionable"|"needs_caleb"|"ignore","reply_required":true|false,"reason":"one or two sentences — if reply_required is false, state the concrete action and where/how it happens"}`;
+}
+
 // ── Draft prompt: deadline discipline + no-invented-placeholder hard rules ──
 // Kept as their own constants (rather than inline in the prompt template) so
 // their exact wording is directly testable without a live model call — see

@@ -543,6 +543,39 @@ test("migrations-10-gmail-body-provenance.sql — no DEFAULT on any new provenan
   assert.ok(!/UPDATE\s+pending_proposals/i.test(sql), "migration must not backfill any existing row");
 });
 
+test("migrations-12-pending-proposals-reply-required.sql — no DEFAULT and no backfill UPDATE", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { resolve, dirname } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sql = readFileSync(
+    resolve(here, "..", "supabase", "migrations-12-pending-proposals-reply-required.sql"),
+    "utf-8"
+  );
+
+  const addColumnLine = sql.split("\n").find((line) => line.includes("ADD COLUMN IF NOT EXISTS reply_required"));
+  assert.ok(addColumnLine, "expected an ADD COLUMN statement for reply_required");
+  assert.ok(
+    !/DEFAULT/i.test(addColumnLine!),
+    "reply_required's ADD COLUMN statement must not carry a DEFAULT (would stamp existing rows)"
+  );
+  assert.ok(!/UPDATE\s+pending_proposals/i.test(sql), "migration must not backfill any existing row");
+  assert.match(addColumnLine!, /BOOLEAN/i);
+});
+
+test("scripts/migrate-cloud.ts — migration 12 is registered after 10 and 11", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { resolve, dirname } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const source = readFileSync(resolve(here, "..", "scripts", "migrate-cloud.ts"), "utf-8");
+  const idx10 = source.indexOf("migrations-10-gmail-body-provenance.sql");
+  const idx11 = source.indexOf("migrations-11-t002-body-completeness-boundary.sql");
+  const idx12 = source.indexOf("migrations-12-pending-proposals-reply-required.sql");
+  assert.ok(idx10 > 0 && idx11 > 0 && idx12 > 0);
+  assert.ok(idx10 < idx11 && idx11 < idx12, "migrations must be registered in numeric order");
+});
+
 test("buildBodySummaryLogLine — includes only safe identifiers/counts/state, never content", () => {
   const line = buildBodySummaryLogLine({
     messageId: "18abc123",
@@ -793,7 +826,7 @@ test("deriveModelContextProvenance — unknown (undefined) source stays undefine
 //    the actual slice and the model-context provenance derivation, so the two
 //    can never silently drift out of sync.
 
-test("handle_email.ts — triage's text slice and its provenance-capping check use the same TRIAGE_TEXT_CAP constant", async () => {
+test("handle_email.ts — triage's prompt-building call and its provenance-capping check use the same TRIAGE_TEXT_CAP constant", async () => {
   const { readFileSync } = await import("node:fs");
   const { resolve, dirname } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
@@ -801,11 +834,22 @@ test("handle_email.ts — triage's text slice and its provenance-capping check u
   const source = readFileSync(resolve(here, "tools", "owner", "handle_email.ts"), "utf-8");
 
   assert.match(source, /const TRIAGE_TEXT_CAP = 1200;/);
-  assert.match(source, /emailText\.slice\(0, TRIAGE_TEXT_CAP\)/);
+  // The actual slice now lives in buildTriageUserMessage (handle_email_grounding.ts),
+  // which handle_email.ts calls with TRIAGE_TEXT_CAP as the cap argument — this
+  // still proves the same single constant governs both the prompt's text cap
+  // and the provenance-capping check below, just via a function parameter
+  // rather than an inline slice.
+  assert.match(source, /buildTriageUserMessage\(emailText, sender, subject, TRIAGE_TEXT_CAP\)/);
   assert.match(source, /deriveModelContextProvenance\(provenance, emailText\.length > TRIAGE_TEXT_CAP\)/);
-  // No stray hardcoded 1200 anywhere else that could drift from the constant.
+  // No stray hardcoded 1200 anywhere else in this file that could drift from the constant.
   const occurrencesOf1200 = (source.match(/1200/g) ?? []).length;
   assert.equal(occurrencesOf1200, 1, "1200 must appear exactly once, in the TRIAGE_TEXT_CAP declaration");
+
+  const groundingSource = readFileSync(
+    resolve(here, "tools", "owner", "handle_email_grounding.ts"),
+    "utf-8"
+  );
+  assert.match(groundingSource, /emailText\.slice\(0, textCap\)/);
 });
 
 test("handle_email.ts — draftEmailReply routes provenance through deriveModelContextProvenance too (symmetry, no local cap)", async () => {

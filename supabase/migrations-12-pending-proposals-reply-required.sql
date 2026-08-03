@@ -1,0 +1,23 @@
+-- Run this in Supabase SQL Editor after migrations-11-t002-body-completeness-boundary.sql.
+-- NOT applied to the live database as part of this change.
+--
+-- Adds reply_required to pending_proposals — purely additive. Does not touch
+-- any existing column, constraint, status, outcome, timestamp, enrollment
+-- mechanism, proposal content, or T-002 table/function. Does not edit
+-- migrations 09/10/11's already-applied history.
+--
+-- No DEFAULT, no backfill. Every existing row stays NULL the moment this
+-- column is added — legacy/unknown, never fabricated as true or false. A
+-- pre-migration row's actual reply-required determination was never made or
+-- recorded, so there is nothing true to backfill it with; NULL here means
+-- "unknown," not "false" and not "true." Only proposals created AFTER this
+-- migration, by the automated pipeline in lib/inbox-watch.ts, ever get an
+-- explicit TRUE/FALSE value — written directly from the same handle_email
+-- result that determined draft_reply, so the two can never disagree.
+--
+-- reply_required is stored as its own column, independent of classification —
+-- an "actionable" proposal can have reply_required = false (the required
+-- action happens through a portal, a payment page, or in person) without
+-- reclassifying to "ignore" or anything else. Never conflate the two.
+
+ALTER TABLE pending_proposals ADD COLUMN IF NOT EXISTS reply_required BOOLEAN;

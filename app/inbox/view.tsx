@@ -15,6 +15,9 @@ interface PendingProposal {
   subject: string;
   classification: EmailProposal["classification"];
   reason: string;
+  // NULL for any row created before migrations-12-pending-proposals-reply-
+  // required.sql — legacy/unknown, never coerced to true or false on read.
+  reply_required: boolean | null;
   draft_body: string | null;
   grounded_sources: unknown;
   suggested_attachments: unknown;
@@ -33,6 +36,13 @@ function toEmailProposal(p: PendingProposal): EmailProposal {
   return {
     classification: p.classification,
     reason: p.reason,
+    // Passed through as-is, including null (legacy rows that predate
+    // migrations-12-pending-proposals-reply-required.sql). Never defaulted
+    // to true here — that would fabricate certainty a legacy row never
+    // recorded. EmailProposalCard derives its controls from whether a real
+    // draft exists, not from this value, so a null reply_required never
+    // manufactures or suppresses anything on its own.
+    reply_required: p.reply_required,
     matched_documents: docs,
     draft_reply: p.draft_body,
     suggested_attachments: attachmentTitles,
