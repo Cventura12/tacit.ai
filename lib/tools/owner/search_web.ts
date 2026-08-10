@@ -30,7 +30,7 @@ export const search_web: ToolDefinition = {
       query: {
         type: "string",
         description:
-          "Web search query. Be specific — e.g. 'USCIS special immigrant juvenile requirements 2024' or 'Tennessee community college in-state tuition undocumented students'.",
+          "Web search query. Be specific — e.g. 'city noise ordinance quiet hours 2024' or 'Tennessee community college in-state tuition requirements'.",
       },
       count: {
         type: "number",
