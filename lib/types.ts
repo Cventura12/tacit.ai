@@ -1,3 +1,5 @@
+import type { EmailBodyProvenance } from "@/lib/gmail";
+
 // A single step in the retrieval trace panel (one per status event during a run).
 export type TraceStep = {
   label: string;
@@ -49,6 +51,19 @@ export type RecentRun = {
 export interface EmailProposal {
   classification: "actionable" | "needs_caleb" | "ignore";
   reason: string;
+  // Independent of classification: whether a reply EMAIL is the right
+  // response. An "actionable" email can have reply_required: false when the
+  // real required action happens elsewhere (a portal, a payment page, in
+  // person) — a reply wouldn't accomplish anything. Meaningful only when
+  // classification is "actionable."
+  //
+  // From the live handle_email path this is always true or false (true by
+  // default on parse failure, so a reply still gets drafted when this can't
+  // be determined — never silently skipped). null is reserved for stored
+  // pending_proposals rows that predate the reply_required column
+  // (migrations-12-pending-proposals-reply-required.sql) — legacy/unknown,
+  // never coerced to true or false on read. See app/inbox/view.tsx.
+  reply_required: boolean | null;
   matched_documents: { doc_id?: string; title: string; page: number; snippet: string; highlight?: string }[];
   draft_reply: string | null;
   suggested_attachments: string[];
@@ -59,6 +74,11 @@ export interface EmailProposal {
   in_reply_to_id?: string;     // Gmail messageId for In-Reply-To header
   attachment_doc_ids?: string[]; // Supabase doc UUIDs matching suggested_attachments[]
   needs_approval: true;
+  // Completeness of the email_text handle_email actually triaged/drafted from
+  // (see lib/gmail.ts EmailBodyProvenance) — undefined only when the caller
+  // supplied no provenance (interactive/legacy path). Never fabricated as
+  // "full" when absent; a null/undefined value here means unknown, not full.
+  body_provenance?: EmailBodyProvenance;
 }
 
 // UI message — what the thread renders

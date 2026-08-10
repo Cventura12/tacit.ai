@@ -22,6 +22,12 @@ function fmtPct(rate: number | null): string {
   return `${(rate * 100).toFixed(1)}%`;
 }
 
+// Every source-completeness group is shown as numerator / total enrolled —
+// never a bare count, so a reader can always see what it's a fraction of.
+function fmtGroup(count: number, denominator: number): string {
+  return `${count} / ${denominator}`;
+}
+
 // The canary's pass/fail/no-data classification comes entirely from
 // computeInstrumentationCanary's `state` field — never re-derived here from the
 // rate, so a zero-decisions state can never render as "within threshold."
@@ -165,6 +171,28 @@ export function T002View() {
             </div>
           ) : metrics ? (
             <>
+              {/* Deployment boundary state — must never imply T-002 has begun
+                  while the boundary is null. */}
+              <div
+                className="rounded-lg px-4 py-3"
+                style={{ background: "var(--bubble)", border: "0.5px solid var(--line-2)" }}
+              >
+                {metrics.bodyCompletenessBoundaryAt === null ? (
+                  <p className="text-[12px] font-medium text-ink">
+                    Enrollment paused — body-completeness deployment boundary has not been activated.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[12px] font-medium text-ink">
+                      Body-completeness deployment boundary activated: {metrics.bodyCompletenessBoundaryAt}
+                    </p>
+                    <p className="text-[11px] mt-1" style={{ color: "var(--gray-2)" }}>
+                      Only proposals created on or after that instant can enroll.
+                    </p>
+                  </>
+                )}
+              </div>
+
               <Section title="Enrollment">
                 <Stat label="Enrolled" value={`${metrics.enrolledCount} / ${metrics.cap}`} />
                 <Stat label="Pending" value={metrics.statusCounts.pending} />
@@ -172,6 +200,80 @@ export function T002View() {
                 <Stat label="Skipped" value={metrics.statusCounts.skipped} />
                 <Stat label="Expired" value={metrics.statusCounts.expired} />
                 <Stat label="Failed" value={metrics.statusCounts.failed} />
+              </Section>
+
+              {/* Source completeness — provenance, never conflated with outcomes. */}
+              <div
+                className="rounded-lg px-4 py-3"
+                style={{ background: "rgba(245,158,11,0.08)", border: "0.5px solid rgba(245,158,11,0.25)" }}
+              >
+                <p className="text-[12px] font-medium text-ink">
+                  Response metrics are not evidence of correct routing or correct proposal content. Source
+                  completeness must be reported alongside outcomes. Decisions made from partial, snippet-only,
+                  fetch-failed, locally truncated, or legacy-unknown content may not support conclusions about
+                  Tacit&apos;s substantive accuracy.
+                </p>
+              </div>
+
+              <Section
+                title="Source completeness"
+                note="Raw dimensions (independent, orthogonal) and derived presentation groups (full/partial × truncation only — never a stored combined value). Every count is numerator / total enrolled."
+              >
+                <Stat
+                  label="Full"
+                  value={fmtGroup(metrics.provenance.fullCount, metrics.enrolledCount)}
+                  sub="raw dimension"
+                />
+                <Stat
+                  label="Partial"
+                  value={fmtGroup(metrics.provenance.partialCount, metrics.enrolledCount)}
+                  sub="raw dimension"
+                />
+                <Stat
+                  label="Snippet-only"
+                  value={fmtGroup(metrics.provenance.snippetOnlyCount, metrics.enrolledCount)}
+                  sub="raw dimension = derived group"
+                />
+                <Stat
+                  label="Fetch-failed"
+                  value={fmtGroup(metrics.provenance.fetchFailedCount, metrics.enrolledCount)}
+                  sub="raw dimension = derived group"
+                />
+                <Stat
+                  label="Locally truncated"
+                  value={fmtGroup(metrics.provenance.locallyTruncatedCount, metrics.enrolledCount)}
+                  sub="spans full + partial"
+                />
+                <Stat
+                  label="Not locally truncated"
+                  value={fmtGroup(metrics.provenance.notLocallyTruncatedCount, metrics.enrolledCount)}
+                  sub="known false, not null"
+                />
+                <Stat
+                  label="Legacy / unknown"
+                  value={fmtGroup(metrics.provenance.legacyUnknownCount, metrics.enrolledCount)}
+                  sub="completeness null, or full/partial with unknown truncation"
+                />
+                <Stat
+                  label="Full, not truncated"
+                  value={fmtGroup(metrics.provenance.fullNotTruncated, metrics.enrolledCount)}
+                  sub="derived group"
+                />
+                <Stat
+                  label="Full, locally truncated"
+                  value={fmtGroup(metrics.provenance.fullTruncated, metrics.enrolledCount)}
+                  sub="derived group"
+                />
+                <Stat
+                  label="Partial, not truncated"
+                  value={fmtGroup(metrics.provenance.partialNotTruncated, metrics.enrolledCount)}
+                  sub="derived group"
+                />
+                <Stat
+                  label="Partial, locally truncated"
+                  value={fmtGroup(metrics.provenance.partialTruncated, metrics.enrolledCount)}
+                  sub="derived group"
+                />
               </Section>
 
               <Section title="Coverage">

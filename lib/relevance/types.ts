@@ -5,7 +5,14 @@ export interface Message {
   id: string;               // channel-native message ID
   from: string;             // full From value, e.g. "Jane <jane@example.com>"
   subject: string;
-  body: string;             // snippet or full body — sufficient for triage
+  // The Gmail snippet ONLY, for this cheap pre-filter stage — intentional and
+  // documented (see docs/experiments/T-002.md). Do not confuse this with the
+  // full body handle_email actually triages/drafts from: that's fetched
+  // separately, post-filter, in lib/inbox-watch.ts via readMessageBody(), and
+  // carries its own completeness provenance (see lib/gmail.ts
+  // EmailBodyProvenance) — never reuse this snippet-only field as if it were
+  // that later, more complete body.
+  body: string;
   receivedAt: string;       // ISO 8601
   // True when receivedAt fell back to processing time because the channel had no
   // genuine source-received timestamp (e.g. a missing Gmail Date header) — see

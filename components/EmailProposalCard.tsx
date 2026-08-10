@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { EmailProposal } from "@/lib/types";
+import { countGenuineSources } from "@/lib/email-proposal";
 import { PdfPanel } from "./PdfPanel";
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -102,7 +103,14 @@ export function EmailProposalCard({
   const [sentAt, setSentAt] = useState("");
 
   const badge = BADGE[proposal.classification];
-  const sourceCount = proposal.matched_documents.length;
+  const sourceCount = countGenuineSources(proposal.matched_documents);
+  const hasDraft = proposal.draft_reply !== null;
+  const replyOptional = proposal.classification === "actionable" && proposal.reply_required === false;
+  // Legacy rows from before reply_required existed. Deliberately never
+  // treated as "reply required" or "no reply required" — only whether a
+  // draft actually exists (hasDraft, used everywhere below) decides which
+  // controls show. This flag exists purely to label the state honestly.
+  const replyUnknown = proposal.classification === "actionable" && proposal.reply_required === null;
 
   // Attachment options — pair doc_ids with titles from suggested_attachments
   const attachmentOptions = (proposal.attachment_doc_ids ?? []).map((id, i) => ({
@@ -354,8 +362,22 @@ export function EmailProposalCard({
       >
         <span className="text-gray-2 shrink-0"><IcoMail /></span>
         <p className="flex-1 text-[13px] font-medium text-ink leading-tight truncate">
-          {proposal.draft_reply ? "Draft reply prepared" : "Email reviewed"}
+          {hasDraft
+            ? "Draft reply prepared"
+            : replyOptional
+              ? "Action found — no reply needed"
+              : replyUnknown
+                ? "Action found — reply requirement unknown (legacy)"
+                : "Email reviewed"}
         </p>
+        {replyOptional && (
+          <span
+            className="font-mono text-[9px] tracking-[0.12em] uppercase px-2 py-[3px] rounded-full shrink-0"
+            style={{ background: "var(--line-2)", color: "var(--gray-2)" }}
+          >
+            NO REPLY NEEDED
+          </span>
+        )}
         {sourceCount > 0 && (
           <span
             className="font-mono text-[9px] tracking-[0.12em] uppercase px-2 py-[3px] rounded-full shrink-0"
@@ -395,8 +417,32 @@ export function EmailProposalCard({
             </div>
           </div>
 
+          {/* No reply needed — the required action happens elsewhere (a portal,
+              a payment page, in person). Shown instead of a draft, never both. */}
+          {!hasDraft && replyOptional && (
+            <div
+              className="rounded-lg px-3 py-2.5 text-[12px] leading-relaxed"
+              style={{ background: "var(--bubble)", border: "0.5px solid var(--line-2)", color: "var(--gray-2)" }}
+            >
+              No reply required — the action above happens outside email (e.g. a portal), so no draft was prepared.
+            </div>
+          )}
+
+          {/* Legacy row, no draft recorded, and reply_required predates this
+              column — state plainly that it's unknown rather than asserting
+              either "required" or "not required." */}
+          {!hasDraft && replyUnknown && (
+            <div
+              className="rounded-lg px-3 py-2.5 text-[12px] leading-relaxed"
+              style={{ background: "var(--bubble)", border: "0.5px solid var(--line-2)", color: "var(--gray-2)" }}
+            >
+              Whether a reply is required is unknown for this legacy proposal — no draft was recorded. Review the
+              recommended action above and reply manually if needed.
+            </div>
+          )}
+
           {/* Draft reply */}
-          {proposal.draft_reply !== null && (
+          {hasDraft && (
             <div className="flex flex-col flex-1 gap-1.5">
               <div className="flex items-center justify-between">
                 <p className="font-mono text-[9px] tracking-[0.12em] uppercase text-gray-2">
@@ -508,13 +554,18 @@ export function EmailProposalCard({
               <span className="ml-auto" style={{ color: "#4ade80" }}><IcoCheck /></span>
             </div>
             <p className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.65)" }}>
-              Tacit recommends; you decide. Every claim traces to a cited page. It surfaces
-              conditions, not a verdict — it does not conclude your eligibility or legal status.
+              Tacit recommends; you decide.{" "}
+              {sourceCount > 0
+                ? "Every claim traces to a cited page."
+                : "Grounded in the retrieved email — no internal document was relevant enough to cite."}{" "}
+              It surfaces conditions, not a verdict — it does not conclude your eligibility or legal status.
             </p>
           </div>
 
-          {/* Suggested attachments */}
-          {proposal.suggested_attachments.length > 0 && (
+          {/* Suggested attachments — only meaningful alongside an actual
+              draft; an attachment list with nothing being sent is confusing,
+              not useful. */}
+          {hasDraft && proposal.suggested_attachments.length > 0 && (
             <div>
               <p className="font-mono text-[9px] tracking-[0.12em] uppercase text-gray-2 mb-1.5">
                 SUGGESTED ATTACHMENTS
@@ -543,18 +594,26 @@ export function EmailProposalCard({
         className="flex items-center gap-3 px-4 py-3"
         style={{ borderTop: "0.5px solid var(--line)" }}
       >
-        <button
-          onClick={() => setCardState("confirming")}
-          className="px-4 py-2.5 lg:py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors"
-        >
-          Approve draft
-        </button>
-        <button
-          onClick={() => setEditing((v) => !v)}
-          className="text-[13px] text-gray-1 hover:text-ink transition-colors"
-        >
-          {editing ? "Done editing" : "Edit"}
-        </button>
+        {/* "Approve draft" sends an email — only offered when a draft actually
+            exists. When the required action is external (no reply needed),
+            there is nothing to send; forcing this button here would let the
+            owner "approve" and send an empty or meaningless email. */}
+        {hasDraft && (
+          <>
+            <button
+              onClick={() => setCardState("confirming")}
+              className="px-4 py-2.5 lg:py-[7px] rounded-lg bg-green text-white text-[13px] font-medium hover:bg-navy-soft transition-colors"
+            >
+              Approve draft
+            </button>
+            <button
+              onClick={() => setEditing((v) => !v)}
+              className="text-[13px] text-gray-1 hover:text-ink transition-colors"
+            >
+              {editing ? "Done editing" : "Edit"}
+            </button>
+          </>
+        )}
         <button
           onClick={() => { setCardState("skipped"); onSkipped?.(); }}
           className="text-[13px] text-gray-3 hover:text-gray-1 transition-colors"
