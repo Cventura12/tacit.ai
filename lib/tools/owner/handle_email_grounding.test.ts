@@ -8,6 +8,7 @@ import {
   classifySensitiveDocument,
   emailExplicitlyMentionsSensitiveCategory,
   buildGroundingBlock,
+  buildMemoryGroundingBlock,
   buildDraftUserMessage,
   buildTriageUserMessage,
   DEADLINE_DISCIPLINE_RULES,
@@ -230,6 +231,34 @@ test("buildGroundingBlock — non-empty documents: includes title, page, and sni
   assert.ok(block.includes("some excerpt"));
 });
 
+// ── buildMemoryGroundingBlock ─────────────────────────────────────────────────
+
+test("buildMemoryGroundingBlock — zero memories: empty string, so it's a no-op when appended to buildGroundingBlock's output", () => {
+  assert.equal(buildMemoryGroundingBlock([]), "");
+});
+
+test("buildMemoryGroundingBlock — non-empty memories: includes claim and a source label, never a fabricated conclusion", () => {
+  const block = buildMemoryGroundingBlock([{ claim: "lease ends 2026-05-01", source_kind: "document" }]);
+  assert.ok(block.includes("lease ends 2026-05-01"));
+  assert.ok(block.includes("Remembered from a document"));
+  assert.match(block, /quote only what's stated, never expand or infer beyond it/);
+});
+
+test("buildMemoryGroundingBlock — maps each source_kind to a natural-language label", () => {
+  const block = buildMemoryGroundingBlock([
+    { claim: "claim from email", source_kind: "email" },
+    { claim: "claim from conversation", source_kind: "conversation" },
+  ]);
+  assert.ok(block.includes("Remembered from a previous email"));
+  assert.ok(block.includes("Remembered from an earlier conversation"));
+});
+
+test("buildMemoryGroundingBlock — an unrecognized source_kind falls back to a generic label rather than throwing or omitting it", () => {
+  const block = buildMemoryGroundingBlock([{ claim: "some claim", source_kind: "bogus_kind" }]);
+  assert.ok(block.includes("Remembered from a previous interaction"));
+  assert.ok(block.includes("some claim"));
+});
+
 // ── buildDraftUserMessage — deadline discipline (exact housing email structure) ─
 
 test("buildDraftUserMessage — the exact housing email text passes through verbatim", () => {
@@ -263,7 +292,7 @@ test("buildDraftUserMessage — instructs the model not to invent a question/pla
 
 test("buildDraftUserMessage — deadline-discipline and no-placeholder rules are numbered after the original six, never replacing them", () => {
   const prompt = buildDraftUserMessage(HOUSING_EMAIL_TEXT, "", "", buildGroundingBlock([]));
-  assert.match(prompt, /1\. Never state or imply the user's citizenship/);
+  assert.match(prompt, /1\. Never state or imply any personal fact about the user/);
   assert.match(prompt, /6\. When describing what a document IS/);
   assert.ok(prompt.includes(DEADLINE_DISCIPLINE_RULES));
   assert.ok(prompt.includes(NO_INVENTED_PLACEHOLDER_RULE));
@@ -371,8 +400,16 @@ test("handle_email.ts — matched_documents (citations) are NOT filtered by the 
 
 test("handle_email.ts — draftEmailReply uses buildGroundingBlock and buildDraftUserMessage rather than an inline template", () => {
   const source = readHandleEmailSource();
-  assert.match(source, /const groundingBlock = buildGroundingBlock\(docs\)/);
+  assert.match(source, /const documentGroundingBlock = buildGroundingBlock\(docs\)/);
   assert.match(source, /content: buildDraftUserMessage\(emailText, sender, subject, groundingBlock\)/);
+});
+
+test("handle_email.ts — draftEmailReply appends memory grounding via buildMemoryGroundingBlock, never merged into buildGroundingBlock itself", () => {
+  const source = readHandleEmailSource();
+  assert.match(source, /const memoryGroundingBlock = buildMemoryGroundingBlock\(memories\)/);
+  // The final groundingBlock falls back to the document-only block when
+  // there's no memory content — removing memory wiring is a one-line revert.
+  assert.match(source, /const groundingBlock = memoryGroundingBlock\s*\n\s*\? `\$\{documentGroundingBlock\}\\n\\n\$\{memoryGroundingBlock\}`\s*\n\s*: documentGroundingBlock;/);
 });
 
 test("EmailProposalCard.tsx — safety-check text is conditional on sourceCount, never claims a citation when there are zero sources", () => {
@@ -395,7 +432,7 @@ test("handle_email.ts — triage response parsing reads reply_required, defaulti
 
 test("handle_email.ts — action grounding (document search) runs for every actionable email, independent of replyRequired", () => {
   const source = readHandleEmailSource();
-  const gatherIdx = source.indexOf("matchedDocs = await gatherDocuments(llmQueries)");
+  const gatherIdx = source.indexOf("matchedDocs = await gatherDocuments(llmQueries, emailText)");
   assert.ok(gatherIdx > 0);
   // The nearest enclosing `if` before gatherDocuments must gate on
   // classification alone — NOT on replyRequired — so grounding is never

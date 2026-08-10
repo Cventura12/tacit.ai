@@ -90,10 +90,13 @@ test("route.ts — buildSafeToolLogSummary is used for both the console log and 
   const source = readRouteSource();
   assert.match(source, /safeLogSummary = buildSafeToolLogSummary\(tu\.name, result\)/);
   // The success console.log call must use safeLogSummary with a fallback to
-  // the old slice-based behavior — not slice unconditionally.
-  const consoleLogLine = source.split("\n").find((l) => l.includes("console.log") && l.includes("succeeded:"));
-  assert.ok(consoleLogLine, "expected a console.log line logging tool success");
-  assert.ok(consoleLogLine!.includes("safeLogSummary ?? result.slice(0, 300)"));
+  // a content-free length marker — never a raw slice of the result, which
+  // could carry email/document content for tools without a safe summary.
+  const consoleLogLine = source
+    .split("\n")
+    .find((l) => l.includes("safeLogSummary") && l.includes("result_length"));
+  assert.ok(consoleLogLine, "expected a console.log fallback using a result length marker");
+  assert.ok(consoleLogLine!.includes("safeLogSummary ?? `result_length=${result.length}`"));
   assert.match(source, /output_summary: safeLogSummary \?\? result\.slice\(0, 500\)/);
 });
 

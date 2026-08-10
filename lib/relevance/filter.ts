@@ -61,8 +61,9 @@ export async function filterAndKeep(messages: Message[]): Promise<Message[]> {
   return results.filter((r) => r.verdict === "kept").map((r) => r.message);
 }
 
+// Non-content fields only — never msg.from/subject/body. msg.id is the
+// channel-native (e.g. Gmail) message ID, an opaque identifier safe to log;
+// it carries no email content itself.
 function log(label: string, msg: Message, reason: string) {
-  console.log(
-    `[relevance] ${label.padEnd(14)} | from=${msg.from.slice(0, 40).padEnd(40)} | subj="${msg.subject.slice(0, 50)}" | ${reason}`
-  );
+  console.log(`[relevance] ${label.padEnd(14)} | id=${msg.id} | ${reason}`);
 }

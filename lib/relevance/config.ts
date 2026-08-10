@@ -8,6 +8,20 @@
 
 export const RELEVANCE_CONFIG = {
 
+  // ── Domain description ────────────────────────────────────────────────────
+  // Plain-language description of what YOU consider relevant / worth routing
+  // to the assistant. This is the ONE place a new user describes their own
+  // domain — lib/relevance/smart.ts (stage 2, the AI classifier) reads this
+  // field directly and stays domain-neutral in its own logic; it never
+  // hardcodes a subject area. Change this to retarget stage 2 — no logic
+  // file needs touching.
+  //
+  // Default below preserves the owner's current domain: immigration/
+  // enrollment.
+  domainDescription: `- Immigration status, USCIS filings, lawful presence, work authorization, EAD, SIJS, deferred action
+- School enrollment, financial aid, residency verification, academic documents
+- Any official notice or substantive question that requires a real reply`,
+
   // ── Allowlist ──────────────────────────────────────────────────────────────
   // Messages from these senders fast-pass stage 1 (no AI needed).
   allowlist: {

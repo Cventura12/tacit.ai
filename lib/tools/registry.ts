@@ -84,6 +84,13 @@ export interface ToolDefinition {
   lane: Lane;
   // Present-progressive label shown to the visitor while the tool runs.
   statusLabel: string;
+  // Default-deny allowlist for observability persistence (tool_runs.input) and
+  // logging: only keys listed here survive verbatim when the tool's raw input
+  // is persisted or logged — every other key is dropped and its NAME (not
+  // value) is recorded instead. Omitting this field redacts the entire input,
+  // which is the safe default every new tool inherits automatically —
+  // including MCP tools, which never set it. See lib/redact.ts.
+  loggableInputKeys?: string[];
   execute: (input: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<string>;
 }
 

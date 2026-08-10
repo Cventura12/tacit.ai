@@ -11,12 +11,24 @@ import { buildMcpTools } from "@/lib/mcp";
 import { checkRateLimit } from "@/lib/ratelimit";
 import { isDbConfigured, getDb } from "@/lib/db";
 import { requireOwner } from "@/lib/auth";
+import { redactToolInput } from "@/lib/redact";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_MESSAGES = 50;
 const MAX_CONTENT_LEN = 4000;
+
+// Above this length, a user message is assumed to be a pasted document (e.g.
+// a full email body) rather than a typed instruction, and agent_runs.user_query
+// stores a length marker instead of the content. Short typed instructions are
+// kept verbatim — that's the observability this table exists for.
+const USER_QUERY_LOG_MAX_CHARS = 300;
+
+function redactUserQueryForLog(query: string): string {
+  if (query.length <= USER_QUERY_LOG_MAX_CHARS) return query;
+  return `[redacted — ${query.length} chars]`;
+}
 
 type SimpleMessage = { role: "user" | "assistant"; content: string };
 
@@ -99,7 +111,7 @@ async function runAgentLoop(
     try {
       const { data } = await getDb()
         .from("agent_runs")
-        .insert({ user_query: userQuery.slice(0, 4000), response_text: "", duration_ms: 0 })
+        .insert({ user_query: redactUserQueryForLog(userQuery), response_text: "", duration_ms: 0 })
         .select("id")
         .single();
       runId = data?.id ?? undefined;
@@ -189,9 +201,10 @@ async function runAgentLoop(
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
         for (const tu of toolUseBlocks) {
-          console.log(
-            `[agent] tool_use: name="${tu.name}" id="${tu.id}" input=${JSON.stringify(tu.input)}`
-          );
+          // Keys only — tu.input may carry email bodies, sender/subject, or
+          // other visitor-submitted content that must never reach logs.
+          const inputKeys = Object.keys((tu.input as Record<string, unknown>) ?? {});
+          console.log(`[agent] tool_use: name="${tu.name}" id="${tu.id}" input_keys=[${inputKeys.join(",")}]`);
 
           if (!allowedNames.has(tu.name)) {
             console.warn(`[agent] BLOCKED — tool "${tu.name}" not in allowed set`);
@@ -229,7 +242,12 @@ async function runAgentLoop(
             // see lib/tools/tool-log-summary.ts. Every other tool keeps its
             // prior slice-based logging, unchanged.
             safeLogSummary = buildSafeToolLogSummary(tu.name, result);
-            console.log(`[agent] "${tool.name}" succeeded:`, safeLogSummary ?? result.slice(0, 300));
+            // Length only when no safe summary exists — result may otherwise
+            // carry email/document content (e.g. handle_email's draft reply).
+            console.log(
+              `[agent] "${tool.name}" succeeded:`,
+              safeLogSummary ?? `result_length=${result.length}`
+            );
           } catch (err) {
             console.error(`[agent] "${tool.name}" threw:`, err);
             toolSuccess = false;
@@ -275,7 +293,7 @@ async function runAgentLoop(
                 .insert({
                   run_id: runId,
                   tool_name: tu.name,
-                  input: tu.input as Record<string, unknown>,
+                  input: redactToolInput(tool.loggableInputKeys, tu.input as Record<string, unknown>),
                   output_summary: safeLogSummary ?? result.slice(0, 500),
                   duration_ms: toolDuration,
                   success: toolSuccess,

@@ -32,7 +32,9 @@ export const leave_message: ToolDefinition = {
   lane: "public",
   statusLabel: "sending that to Caleb…",
   execute: async (input, ctx: ToolExecutionContext) => {
-    console.log("[leave_message] execute() entered | input:", JSON.stringify(input));
+    // Keys only — input carries visitor-submitted message/contact content
+    // that must never land in logs.
+    console.log("[leave_message] execute() entered | input keys:", Object.keys(input));
 
     // Durable rate limit: 3 messages per IP per hour
     const allowed = await checkRateLimit(`${ctx.ip}:leave_message`, 3600, 3);

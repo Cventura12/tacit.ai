@@ -253,6 +253,35 @@ ${docs.map((d) => `[${d.title} · p.${d.page}]\n"${d.snippet}"`).join("\n\n")}`
     : "No matching documents were found. Do not assert any facts about the user.";
 }
 
+// ── Memory grounding block ────────────────────────────────────────────────────
+// Memories are cited under the EXACT SAME "retrieve and cite, never conclude"
+// discipline as documents above: each claim traces back to the specific
+// source it was confirmed from, and the draft may quote it but never expand
+// or infer beyond it. Deliberately a SEPARATE function from
+// buildGroundingBlock, appended by the caller rather than merged into it —
+// wiring memories into a tool is meant to be a small, explicit, reversible
+// step (see lib/tools/owner/handle_email.ts), so buildGroundingBlock's own
+// tested behavior for the docs-only case stays completely untouched.
+const MEMORY_SOURCE_LABELS: Record<string, string> = {
+  document: "a document",
+  email: "a previous email",
+  conversation: "an earlier conversation",
+};
+
+export interface MemoryGroundingRef {
+  claim: string;
+  source_kind: string;
+}
+
+export function buildMemoryGroundingBlock(memories: MemoryGroundingRef[]): string {
+  if (memories.length === 0) return "";
+  return `REMEMBERED FACTS — previously confirmed, each still grounded in its own original source. Treat exactly like the document excerpts above: quote only what's stated, never expand or infer beyond it.
+
+${memories
+    .map((m) => `[Remembered from ${MEMORY_SOURCE_LABELS[m.source_kind] ?? "a previous interaction"}]\n"${m.claim}"`)
+    .join("\n\n")}`;
+}
+
 export function buildDraftUserMessage(
   emailText: string,
   sender: string,
@@ -264,12 +293,12 @@ export function buildDraftUserMessage(
 ${groundingBlock}
 
 HARD RULES — each is a failure condition if violated:
-1. Never state or imply the user's citizenship, immigration status, eligibility, or any personal legal fact unless a retrieved excerpt above explicitly says it word for word.
-2. Never infer facts from the email's wording, from what the sender seems to assume, or from general knowledge about immigration law.
+1. Never state or imply any personal fact about the user — status, eligibility, identity, history, finances, account details, or any other legal/official fact — unless a retrieved excerpt above explicitly says it word for word.
+2. Never infer facts from the email's wording, from what the sender seems to assume, or from general knowledge about the subject area.
 3. If the email asks about a fact not present in the retrieved excerpts, write [needs your input: describe what's missing] as a placeholder rather than guessing.
 4. If you reference a document, name it exactly as it appears in the headings above and cite the page number.
-5. Do not assert that the user "is" or "is not" a citizen, permanent resident, or any status — only quote what the document says.
-6. When describing what a document IS, use only the specific form name, type, and classification found in its retrieved excerpt — e.g. "Special Immigrant Juvenile" if the excerpt says that, or "category C14" if the excerpt says that. Never use generic phrases like "approval of a nonimmigrant petition" that don't appear in the retrieved text.
+5. Do not assert that the user "is" or "is not" any status, category, or classification — only quote what the document says.
+6. When describing what a document IS or says, use only the specific name, type, and classification found in its retrieved excerpt — quote it exactly. Never use a generic paraphrase that doesn't appear in the retrieved text.
 ${DEADLINE_DISCIPLINE_RULES}
 ${NO_INVENTED_PLACEHOLDER_RULE}
 

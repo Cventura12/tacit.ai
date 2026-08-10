@@ -3,6 +3,7 @@ import { sendGmail } from "@/lib/gmail";
 import { logOwnerAction } from "@/lib/owner-actions";
 import { getDb, isDbConfigured } from "@/lib/db";
 import { requireOwner } from "@/lib/auth";
+import { extractOwnerStatedMemories } from "@/lib/memory/extract";
 
 // KNOWN INTEGRITY LIMITATION (see docs/experiments/T-002.md "Known integrity
 // limitation" for the full writeup): this route does not receive a
@@ -153,6 +154,34 @@ export async function POST(request: NextRequest) {
     message_id: result.message_id,
     attachment_count: attachments.length,
   });
+
+  // Memory write-back (prompt 5) — fire-and-forget, strictly after the send
+  // above has already succeeded. Removing this block fully disables
+  // write-back with no other effect on the send path. MUST NOT block or be
+  // able to fail this response: never awaited, and any rejection — from the
+  // extraction LLM call, the dedup lookup, or a write — is caught here and
+  // only ever logged.
+  //
+  // Note on scope: this route never receives the original inbound email's
+  // sender/body/gmail_message_id (see the KNOWN INTEGRITY LIMITATION comment
+  // above — this route has no pending_proposals id either). Extraction below
+  // therefore works from what IS available here — the final sent reply text
+  // and its own subject — not the original message. That's sufficient for
+  // this task's scope (commitments the owner made IN this reply); wiring the
+  // original message through as additional context is a possible future
+  // enhancement, not required for write-back to function correctly.
+  if (process.env.OWNER_CLERK_USER_ID) {
+    void extractOwnerStatedMemories({
+      ownerId: process.env.OWNER_CLERK_USER_ID,
+      sentDraftText: emailBody.trim(),
+      subject: subject.trim(),
+      sourceGmailMessageId: result.message_id,
+      threadId: result.thread_id,
+      inReplyToId: typeof in_reply_to_id === "string" ? in_reply_to_id : undefined,
+    }).catch((err) => {
+      console.warn(`[memory/extract] write-back failed for message_id=${result.message_id}:`, err);
+    });
+  }
 
   return NextResponse.json({ ok: true, message_id: result.message_id, sent_at: sentAt });
 }

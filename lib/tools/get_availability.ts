@@ -19,7 +19,7 @@ export const get_availability: ToolDefinition = {
   lane: "public",
   statusLabel: "checking Caleb's availability…",
   execute: async (input) => {
-    console.log("[get_availability] execute() entered | input:", JSON.stringify(input));
+    console.log("[get_availability] execute() entered | input keys:", Object.keys(input));
     const daysAhead =
       typeof input.days_ahead === "number"
         ? Math.min(Math.max(1, input.days_ahead), 7)

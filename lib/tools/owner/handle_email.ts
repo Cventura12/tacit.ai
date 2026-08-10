@@ -2,6 +2,8 @@ import type { ToolDefinition } from "../registry";
 import type { EmailProposal } from "@/lib/types";
 import { logOwnerAction } from "@/lib/owner-actions";
 import { search } from "@/lib/documents";
+import { isDbConfigured } from "@/lib/db";
+import { searchMemories, type MemoryHit } from "@/lib/memory/retrieve";
 import {
   type EmailBodyProvenance,
   buildSourceContentStatusBlock,
@@ -15,9 +17,11 @@ import {
   classifySensitiveDocument,
   emailExplicitlyMentionsSensitiveCategory,
   buildGroundingBlock,
+  buildMemoryGroundingBlock,
   buildDraftUserMessage,
   buildTriageUserMessage,
 } from "./handle_email_grounding";
+import { extractIdentifierAnchors } from "./query-anchors";
 import Anthropic from "@anthropic-ai/sdk";
 
 // Triage only classifies (actionable/needs_caleb/ignore) — it doesn't need the
@@ -81,30 +85,12 @@ async function triageEmail(
 // retrieved excerpt so the draft is grounded in document text, not inferred
 // from the email's wording.
 
-// Fixed queries that run on EVERY handle_email call regardless of what the LLM
-// generates. Short form-number tokens are OCR-stable and reliably match the
-// indexed text even when OCR quality is imperfect. Crucially, a document
-// found ONLY via one of these — never independently by an LLM-generated,
-// email-content-derived query — is not treated as grounded; see
-// selectRelevantDocuments in ./handle_email_grounding for why (this is the
-// fix for the Tennessee Tech housing incident, where these immigration terms
-// matched the corpus's I-360 document regardless of the email's actual
-// topic).
-const FIXED_QUERIES: readonly string[] = [
-  "I-797",
-  "I-360",
-  "I-765",
-  "employment authorization",
-  "special immigrant juvenile",
-  "deferred action",
-  "approval notice",
-];
-
 // generateSearchQueries expands the email intent into multiple FTS-friendly
-// queries covering BOTH the email's surface language AND the technical
-// vocabulary that appears in actual USCIS/immigration documents.
-// This bridges the gap between "proof of lawful presence" in an enrollment
-// email and "special immigrant juvenile" / "SIJS" / "EAD" in the documents.
+// queries covering BOTH the email's surface language AND the formal/official
+// vocabulary a real document on that topic would use — without assuming
+// which topic. It bridges the gap between how a sender phrases a request
+// (e.g. "proof you're covered") and how the matching document is actually
+// worded (e.g. "policy number", "coverage effective date").
 async function generateSearchQueries(
   client: Anthropic,
   emailText: string,
@@ -116,11 +102,12 @@ async function generateSearchQueries(
     messages: [
       {
         role: "user",
-        content: `Generate 6-8 short search queries to find relevant USCIS/immigration documents for this email.
-Include queries for BOTH what the email asks for AND the technical terms that appear in actual USCIS documents.
+        content: `First, figure out what this email is actually about — do not assume any particular subject area (it could be immigration, housing, insurance, invoices, medical care, school enrollment, a lease, anything).
 
-Example — if an email asks for "proof of citizenship or lawful presence", good queries include:
-"lawful presence", "special immigrant juvenile", "SIJS", "employment authorization", "EAD", "I-360", "I-765", "deferred action", "permanent resident", "work authorization"
+Then generate 6-8 short search queries to find relevant passages in the user's personal document collection about THAT topic. Cover BOTH the plain/surface language the sender used AND the formal, official, or technical terms a real document on that topic would use — expand abbreviations to their full names, include any case/claim/account/invoice/reference numbers mentioned verbatim, and add reasonable synonyms.
+
+Example — if an email asks for "proof you're covered under the family plan", good queries include:
+"family plan coverage", "insurance policy", "dependent coverage", "policy number", "proof of coverage", plus any specific numbers or codes named in the email.
 
 Email subject: ${subject || "(none)"}
 Email body excerpt: ${emailText.slice(0, 800)}
@@ -145,17 +132,23 @@ Return a JSON array of short strings only, no markdown: ["q1","q2",...]`,
   return [[subject, emailText.slice(0, 200)].filter(Boolean).join(" ")];
 }
 
-async function gatherDocuments(llmQueries: string[]): Promise<DocRef[]> {
-  // Merge fixed + LLM queries, deduplicated. A query string independently
-  // produced by the LLM (even if it happens to match a fixed one verbatim)
-  // is tagged "llm" — the LLM generating it FROM the email's actual content
-  // is itself a relevance signal that a hardcoded fixed query never carries.
+async function gatherDocuments(llmQueries: string[], sourceText: string): Promise<DocRef[]> {
+  // Anchor queries are extracted deterministically from THIS email's actual
+  // text (see ./query-anchors) — the domain-neutral replacement for the old
+  // hardcoded FIXED_QUERIES list. Merge with LLM queries, deduplicated. A
+  // query string independently produced by the LLM (even if it happens to
+  // match an anchor verbatim) is tagged "llm" — the LLM generating it FROM
+  // the email's actual content is itself a relevance signal an anchor alone
+  // doesn't carry (see selectRelevantDocuments's corroboration requirement).
   const llmQuerySet = new Set(llmQueries);
-  const allQueries = [...new Set([...FIXED_QUERIES, ...llmQueries])];
+  const anchorQueries = extractIdentifierAnchors(sourceText);
+  const allQueries = [...new Set([...anchorQueries, ...llmQueries])];
+  // Counts only — query strings are derived from the email's own content
+  // (see generateSearchQueries) and must not land in logs any more than the
+  // email body itself.
   console.log(
     `[handle_email] ${allQueries.length} queries total` +
-      ` (${FIXED_QUERIES.length} fixed + ${llmQueries.length} from LLM):`,
-    allQueries
+      ` (${anchorQueries.length} anchor + ${llmQueries.length} from LLM)`
   );
 
   // Run all queries in parallel; limit per query so the total set stays manageable.
@@ -164,24 +157,18 @@ async function gatherDocuments(llmQueries: string[]): Promise<DocRef[]> {
       const origin = llmQuerySet.has(q) ? "llm" : "fixed";
       try {
         const { hits } = await search(q, 8);
-        console.log(
-          `[handle_email] query "${q}" (${origin}) → ${hits.length} hit(s):`,
-          hits.map((h) => `${h.title} p.${h.page_number} doc_id=${h.doc_id} score=${h.score}`)
-        );
         return { query: q, origin, hits };
       } catch (err) {
-        console.warn(`[handle_email] search error for query "${q}":`, err);
+        console.warn(`[handle_email] search error (${origin} query):`, err);
         return { query: q, origin, hits: [] };
       }
     })
   );
 
-  // Log every raw hit before filtering so we can see exactly what came back.
+  // Counts only — hit titles/doc_ids indirectly reveal which query (and thus
+  // which part of the email) matched, so they stay out of logs too.
   const allRawHits = perQueryResults.flatMap((r) => r.hits);
-  console.log(
-    `[handle_email] ${allRawHits.length} raw hit(s) before relevance filtering:`,
-    allRawHits.map((h) => `doc_id=${h.doc_id} title="${h.title}" p=${h.page_number} score=${h.score}`)
-  );
+  console.log(`[handle_email] ${allRawHits.length} raw hit(s) before relevance filtering`);
 
   // Score threshold + "found by at least one LLM-generated (email-derived)
   // query" requirement — see selectRelevantDocuments in
@@ -189,10 +176,43 @@ async function gatherDocuments(llmQueries: string[]): Promise<DocRef[]> {
   // via fixed queries is dropped here, not merely deprioritized.
   const merged = selectRelevantDocuments(perQueryResults);
 
-  console.log(
-    `[handle_email] ${merged.length} relevant document(s) after filtering:`,
-    merged.map((d) => `${d.title} p.${d.page}`)
+  console.log(`[handle_email] ${merged.length} relevant document(s) after filtering`);
+  return merged;
+}
+
+// Memory retrieval is document retrieval pointed at a new corpus (see
+// lib/memory/retrieve.ts) — same relevance-first discipline, never a blanket
+// dump of everything the owner is known to believe. Reuses the SAME
+// LLM-generated queries already produced for document search above, so this
+// wiring introduces no separate query-generation step or extra LLM call.
+const MEMORY_RESULTS_PER_QUERY = 5;
+const MAX_MEMORIES = 5;
+
+async function gatherMemories(llmQueries: string[], ownerId: string): Promise<MemoryHit[]> {
+  const perQueryResults = await Promise.all(
+    llmQueries.map(async (q) => {
+      try {
+        return await searchMemories(ownerId, q, MEMORY_RESULTS_PER_QUERY);
+      } catch (err) {
+        console.warn("[handle_email] memory search error:", err);
+        return [];
+      }
+    })
   );
+
+  // Dedupe by id, keeping the best score per memory across queries — same
+  // merge shape as gatherDocuments above.
+  const seen = new Map<string, MemoryHit>();
+  for (const hits of perQueryResults) {
+    for (const hit of hits) {
+      const existing = seen.get(hit.id);
+      if (!existing || hit.score > existing.score) seen.set(hit.id, hit);
+    }
+  }
+
+  const merged = [...seen.values()].sort((a, b) => b.score - a.score).slice(0, MAX_MEMORIES);
+  // Count only — claim text and source content stay out of logs.
+  console.log(`[handle_email] ${merged.length} memory match(es) after merging`);
   return merged;
 }
 
@@ -202,12 +222,21 @@ async function draftEmailReply(
   sender: string,
   subject: string,
   docs: DocRef[],
+  memories: MemoryHit[],
   provenance: EmailBodyProvenance | undefined
 ): Promise<string> {
   // Build the grounding block — the ONLY source of facts the draft may use
   // about the user. When zero documents are relevant, this explicitly says
   // so rather than the model silently having nothing and improvising.
-  const groundingBlock = buildGroundingBlock(docs);
+  // Memories are appended as a SEPARATE block (see buildMemoryGroundingBlock)
+  // rather than merged into buildGroundingBlock itself, so this wiring stays
+  // small and reversible — removing the memory block below fully reverts to
+  // document-only grounding with zero change to buildGroundingBlock.
+  const documentGroundingBlock = buildGroundingBlock(docs);
+  const memoryGroundingBlock = buildMemoryGroundingBlock(memories);
+  const groundingBlock = memoryGroundingBlock
+    ? `${documentGroundingBlock}\n\n${memoryGroundingBlock}`
+    : documentGroundingBlock;
 
   // Unlike triageEmail, this call applies no local cap — the full (possibly
   // already source-truncated) emailText is sent below, so the source
@@ -236,7 +265,7 @@ async function draftEmailReply(
 export const handle_email: ToolDefinition = {
   name: "handle_email",
   description:
-    "Triages a pasted email, searches your documents for relevant context, and drafts a proposed reply in your voice. Returns a structured proposal you must approve before anything happens — never sends automatically. email_text should be the COMPLETE message body — if you only have a Gmail preview snippet, call read_gmail_message first to get the full text before calling this.",
+    "Triages a pasted email, searches your documents and previously confirmed remembered facts for relevant context, and drafts a proposed reply in your voice. Returns a structured proposal you must approve before anything happens — never sends automatically. email_text should be the COMPLETE message body — if you only have a Gmail preview snippet, call read_gmail_message first to get the full text before calling this.",
   input_schema: {
     type: "object",
     properties: {
@@ -265,6 +294,10 @@ export const handle_email: ToolDefinition = {
   },
   lane: "owner",
   statusLabel: "reading your email…",
+  // Only the opaque Gmail IDs may survive into tool_runs.input — never
+  // email_text/sender/subject, which is the entire point of this tool's
+  // custody guarantee.
+  loggableInputKeys: ["gmail_thread_id", "gmail_message_id"],
   execute: async (input, ctx) => {
     const rawEmailText = typeof input.email_text === "string" ? input.email_text.trim() : "";
     const sender = typeof input.sender === "string" ? input.sender.trim() : "";
@@ -324,11 +357,30 @@ export const handle_email: ToolDefinition = {
       const llmQueries = await generateSearchQueries(client, emailText, subject);
 
       ctx.onStatus?.("Search documents");
-      matchedDocs = await gatherDocuments(llmQueries);
+      matchedDocs = await gatherDocuments(llmQueries, emailText);
+
+      // Owner-scoped memory retrieval — see lib/memory/retrieve.ts. Skipped
+      // cleanly (empty result, no error) when the owner isn't configured or
+      // the DB isn't available; memory grounding is additive, never a
+      // requirement for handle_email to function.
+      const ownerId = process.env.OWNER_CLERK_USER_ID;
+      let matchedMemories: MemoryHit[] = [];
+      if (ownerId && isDbConfigured()) {
+        ctx.onStatus?.("Search memory");
+        matchedMemories = await gatherMemories(llmQueries, ownerId);
+      }
 
       if (replyRequired) {
         ctx.onStatus?.("Draft response");
-        draftReply = await draftEmailReply(client, emailText, sender, subject, matchedDocs, bodyProvenance);
+        draftReply = await draftEmailReply(
+          client,
+          emailText,
+          sender,
+          subject,
+          matchedDocs,
+          matchedMemories,
+          bodyProvenance
+        );
       }
     }
 
@@ -386,7 +438,9 @@ export const handle_email: ToolDefinition = {
       body_provenance: bodyProvenance,
     };
 
-    void logOwnerAction("handle_email", { classification, sender, subject });
+    // Classification only — never sender/subject/body. See lib/redact.ts and
+    // this tool's loggableInputKeys for the same guarantee on tool_runs.input.
+    void logOwnerAction("handle_email", { classification });
 
     // _proposal is extracted by the agent loop before the model sees the result.
     return JSON.stringify({
