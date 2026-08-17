@@ -1,20 +1,10 @@
 import type { ToolDefinition } from "../registry";
 import { search } from "@/lib/documents";
 import { logOwnerAction } from "@/lib/owner-actions";
+import { extractIdentifierAnchors } from "./query-anchors";
 import Anthropic from "@anthropic-ai/sdk";
 
 // ─── Helpers (parallel to handle_email internals) ─────────────────────────────
-
-// Same stable FTS anchors — these form numbers reliably match OCR-indexed text.
-const FIXED_QUERIES: readonly string[] = [
-  "I-797",
-  "I-360",
-  "I-765",
-  "employment authorization",
-  "special immigrant juvenile",
-  "deferred action",
-  "approval notice",
-];
 
 type DocRef = {
   doc_id: string;
@@ -46,8 +36,9 @@ async function generateQueries(client: Anthropic, question: string): Promise<str
     messages: [
       {
         role: "user",
-        content: `Generate 6-8 short search queries to find relevant passages in USCIS/immigration documents for this question.
-Include queries covering BOTH what the question asks AND the technical vocabulary found in actual USCIS/official documents.
+        content: `First, figure out what subject area this question is actually about — do not assume any particular domain (it could be immigration, housing, insurance, finance, employment, medical care, anything).
+
+Then generate 6-8 short search queries to find relevant passages in the user's personal document collection about THAT subject. Cover BOTH the plain language the question uses AND the formal, official, or technical vocabulary a real document on that subject would use — expand abbreviations to their full names, include any case/claim/account/reference numbers named verbatim, and add reasonable synonyms.
 
 Question: ${question.slice(0, 600)}
 
@@ -77,9 +68,18 @@ Return a JSON array of short strings only, no markdown: ["q1","q2",...]`,
 const MAX_PAGES_PER_DOC = 2;
 const MAX_DOCS = 6;
 
-async function gatherPassages(llmQueries: string[]): Promise<DocRef[]> {
-  const allQueries = [...new Set([...FIXED_QUERIES, ...llmQueries])];
-  console.log(`[cross_reference] ${allQueries.length} queries`);
+async function gatherPassages(llmQueries: string[], sourceText: string): Promise<DocRef[]> {
+  // Anchor queries are extracted deterministically from THIS question's
+  // actual text (see ./query-anchors) — the domain-neutral replacement for
+  // the old hardcoded immigration-term FIXED_QUERIES list.
+  const anchorQueries = extractIdentifierAnchors(sourceText);
+  const allQueries = [...new Set([...anchorQueries, ...llmQueries])];
+  // Counts only — query strings are derived from the question's own content
+  // and must not land in logs.
+  console.log(
+    `[cross_reference] ${allQueries.length} queries` +
+      ` (${anchorQueries.length} anchor + ${llmQueries.length} from LLM)`
+  );
 
   const perQueryHits = await Promise.all(
     allQueries.map(async (q) => {
@@ -87,7 +87,7 @@ async function gatherPassages(llmQueries: string[]): Promise<DocRef[]> {
         const { hits } = await search(q, 8);
         return hits;
       } catch (err) {
-        console.warn(`[cross_reference] search error for "${q}":`, err);
+        console.warn("[cross_reference] search error:", err);
         return [];
       }
     })
@@ -138,9 +138,9 @@ async function gatherPassages(llmQueries: string[]): Promise<DocRef[]> {
     result.push(...pages.slice(0, MAX_PAGES_PER_DOC).map(({ ref }) => ref));
   }
 
+  // Counts only — document titles stay out of logs.
   console.log(
-    `[cross_reference] ${result.length} passage(s) across ${sortedDocs.length} document(s):`,
-    result.map((d) => `"${d.title}" p.${d.page}`)
+    `[cross_reference] ${result.length} passage(s) across ${sortedDocs.length} document(s)`
   );
   return result;
 }
@@ -184,7 +184,7 @@ async function reasonAcrossDocuments(
 
 HARD RULES — each is a failure condition if violated:
 1. Every fact you state MUST trace to one of the retrieved passages below. No fact without a source.
-2. You may connect facts that are each independently cited. Example: "Document A (p.1) shows authorization code SL6; Document B (p.1) lists category C14, which references the same deferred action grant."
+2. You may connect facts that are each independently cited. Example: "Document A (p.1) shows reference number SL6; Document B (p.1) lists category C14, which references the same account."
 3. You may NOT conclude eligibility, legal status, or what anything means for the reader. Surface the connection only — never say "therefore you qualify" or "this means you are eligible."
 4. If two passages appear to conflict, FLAG both with citations rather than resolving the conflict.
 5. If you cannot ground a connection in the retrieved text, say so plainly — "the documents don't jointly show this."
@@ -249,14 +249,14 @@ export const cross_reference: ToolDefinition = {
     "Use when a question spans more than one document or requires connecting facts across sources. " +
     "Retrieves grounded passages from each relevant document, then observes what they jointly show. " +
     "Does NOT conclude eligibility or legal status — surfaces connections with citations only. " +
-    "Example use: 'How does my I-360 relate to my I-765?' or 'Do my documents show a consistent authorization chain?'",
+    "Example use: 'How does document A relate to document B?' or 'Do my documents show a consistent account history?'",
   input_schema: {
     type: "object",
     properties: {
       question: {
         type: "string",
         description:
-          "The question or topic to investigate across multiple documents. Be specific — e.g. 'How does my I-360 relate to my I-765 EAD?' or 'What authorization chain connects my SIJS grant to my work permit?'",
+          "The question or topic to investigate across multiple documents. Be specific — e.g. 'How does my lease relate to my move-in inspection report?' or 'What reference number connects my invoice to my payment confirmation?'",
       },
     },
     required: ["question"],
@@ -273,7 +273,7 @@ export const cross_reference: ToolDefinition = {
     const llmQueries = await generateQueries(client, question);
 
     ctx.onStatus?.("Searching all documents");
-    const docs = await gatherPassages(llmQueries);
+    const docs = await gatherPassages(llmQueries, question);
 
     ctx.onStatus?.("Connecting facts across documents");
     const { grounded_facts, observation, conflicts } = await reasonAcrossDocuments(

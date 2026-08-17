@@ -264,6 +264,54 @@ export type Database = {
         Update: Record<string, never>;
         Relationships: [];
       };
+      memories: {
+        Row: {
+          id: string;
+          owner_id: string;
+          claim: string;
+          memory_type: string;
+          source_kind: string;
+          source_id: string;
+          source_locator: unknown;
+          confidence: number | null;
+          confirmation_status: string;
+          valid_until: string | null;
+          superseded_by: string | null;
+          revoked_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id: string;
+          claim: string;
+          memory_type: string;
+          source_kind: string;
+          source_id: string;
+          source_locator?: unknown;
+          confidence?: number | null;
+          confirmation_status?: string;
+          valid_until?: string | null;
+          superseded_by?: string | null;
+          revoked_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          claim?: string;
+          memory_type?: string;
+          source_kind?: string;
+          source_id?: string;
+          source_locator?: unknown;
+          confidence?: number | null;
+          confirmation_status?: string;
+          valid_until?: string | null;
+          superseded_by?: string | null;
+          revoked_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       t002_enrollment_counter: {
         Row: { id: boolean; cap: number; enrolled_count: number; body_completeness_boundary_at: string | null };
         Insert: {
@@ -301,6 +349,19 @@ export type Database = {
       t002_expire_overdue: {
         Args: { p_hours: number };
         Returns: { proposal_id: string }[];
+      };
+      search_memories: {
+        Args: { q: string; p_owner_id: string; lim?: number; p_include_stale?: boolean };
+        Returns: {
+          id: string;
+          claim: string;
+          memory_type: string;
+          source_kind: string;
+          source_id: string;
+          source_locator: unknown;
+          confidence: number | null;
+          score: number;
+        }[];
       };
     };
     Enums: Record<string, never>;

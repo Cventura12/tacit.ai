@@ -50,6 +50,23 @@ const IcoConnections = () => (
   </svg>
 );
 
+const IcoMemory = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+    <path d="M7.5 2a4 4 0 00-4 4c0 1.5.75 2.5 1.5 3.25V11a1 1 0 001 1h3a1 1 0 001-1V9.25C10.75 8.5 11.5 7.5 11.5 6a4 4 0 00-4-4z"
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M6 13h3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+  </svg>
+);
+
+const IcoAsk = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+    <path d="M7.5 1.5a5 5 0 00-3.9 8.13L2.5 13.5l3.87-1.1A5 5 0 107.5 1.5z"
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M7.5 9.75v.01M7.5 4.5a1.5 1.5 0 011.5 1.5c0 1-1.5 1.25-1.5 2.25"
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 // ── Logo ───────────────────────────────────────────────────────────────────────
 
 const TacitLogo = () => (
@@ -87,6 +104,8 @@ const NAV_ITEMS = [
   { icon: <IcoActivity />, label: "Activity", href: "/activity" },
   { icon: <IcoInbox />, label: "Inbox", href: "/inbox" },
   { icon: <IcoConnections />, label: "Connections", href: "/connections" },
+  { icon: <IcoMemory />, label: "Memory", href: "/owner/memory" },
+  { icon: <IcoAsk />, label: "Ask", href: "/owner/ask" },
 ];
 
 // ── Mobile trigger ────────────────────────────────────────────────────────────

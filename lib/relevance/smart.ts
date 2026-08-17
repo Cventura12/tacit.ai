@@ -3,7 +3,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Message } from "./types";
-import { SMART_THRESHOLD } from "./config";
+import { RELEVANCE_CONFIG, SMART_THRESHOLD } from "./config";
 
 export interface SmartResult {
   relevant: boolean;
@@ -22,12 +22,11 @@ export async function smartTriage(msg: Message): Promise<SmartResult> {
       messages: [
         {
           role: "user",
-          content: `You are deciding whether an incoming email is worth routing to an immigration/enrollment assistant.
+          content: `You are deciding whether an incoming email is worth routing to an assistant focused on this domain:
 
-Score it 0.0–1.0 for relevance to:
-- Immigration status, USCIS filings, lawful presence, work authorization, EAD, SIJS, deferred action
-- School enrollment, financial aid, residency verification, academic documents
-- Any official notice or substantive question that requires a real reply
+${RELEVANCE_CONFIG.domainDescription}
+
+Score it 0.0–1.0 for relevance to the above.
 
 Score close to 1.0 for direct hits on the above; 0.5 for related but not squarely in domain; below 0.3 for unrelated; 0.0 for clear noise/spam.
 
