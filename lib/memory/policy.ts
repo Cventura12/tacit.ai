@@ -249,3 +249,168 @@ export function planOwnerStatedWrites(
   }
   return { toWrite, skippedAsDuplicate };
 }
+
+// ── Pasted-text candidate extraction (memory Phase 2 — paste mode) ───────────
+// Pure planning logic for lib/memory/extract_pasted.ts's
+// extractPastedCandidates. Parallel to the owner-stated pair above, NOT a
+// generalization of it — buildOwnerStatedWriteInput/planOwnerStatedWrites
+// are hardcoded to memory_type='owner_stated'/source_kind='email' and stay
+// exactly as they are; the email write-back path must not change. This is a
+// second, small, independent pair for a different memory_type/source_kind,
+// same accepted duplication already present between the three
+// query-generation functions elsewhere in this codebase.
+//
+// Every candidate here writes as memory_type='inferred_candidate' — NEVER
+// 'owner_stated' and NEVER pre-confirmed. Confirming later (via the existing
+// confirmCandidate in store.ts) does NOT retype it to 'owner_stated' either —
+// that distinction (told directly vs. extracted-then-approved) is real
+// provenance, not a gap to close. See lib/memory/store.ts's
+// setConfirmationStatus.
+
+// A paste is a conversational turn — source_kind='conversation' is the
+// existing, generic kind for "a conversation/agent-run id" (see
+// supabase/migrations-13-memories.sql), not a new source_kind. sourceId is
+// generated once per paste (by the caller) and shared across every candidate
+// from that paste, so all of them trace back to the same paste event even
+// though — unlike a document or email — there's nowhere durable holding the
+// raw pasted text to re-fetch. source_locator instead carries a short
+// verbatim excerpt per-claim (the specific span that justifies THIS claim,
+// not the whole paste) plus the label and a timestamp, so each memory is
+// self-justifying on its own even without the original text.
+export interface PastedTextSource {
+  ownerId: string;
+  sourceId: string;
+  label?: string;
+  // ISO timestamp for the paste event, generated once by the caller (not
+  // read from Date.now() in here, so this stays a pure, deterministic,
+  // directly-testable function).
+  extractedAt: string;
+}
+
+// Excerpts are meant to be short by prompt instruction, but the model isn't
+// trusted to obey that on its own — this is where "short" is actually
+// enforced.
+export const MAX_EXCERPT_LEN = 300;
+
+export interface PastedCandidateLocator {
+  label: string | null;
+  extracted_at: string;
+  excerpt: string;
+}
+
+// Builds the exact writeMemory() input for one extracted candidate.
+// memory_type is hardcoded 'inferred_candidate' — this function has no other
+// caller and no other memory_type this path is scoped to produce.
+// confirmation_status is NOT set here; buildMemoryInsertRow derives it from
+// memory_type exactly as it does for every other write path (so this always
+// lands 'unconfirmed', never pre-confirmed).
+export function buildPastedCandidateWriteInput(
+  claim: string,
+  excerpt: string,
+  source: PastedTextSource
+): WriteMemoryInput {
+  if (!claim || !claim.trim()) {
+    throw new Error("buildPastedCandidateWriteInput requires a non-empty claim");
+  }
+  if (!source.ownerId) {
+    throw new Error("buildPastedCandidateWriteInput requires ownerId");
+  }
+  if (!source.sourceId) {
+    throw new Error("buildPastedCandidateWriteInput requires sourceId");
+  }
+  const locator: PastedCandidateLocator = {
+    label: source.label?.trim() || null,
+    extracted_at: source.extractedAt,
+    excerpt: excerpt.trim().slice(0, MAX_EXCERPT_LEN),
+  };
+  return {
+    owner_id: source.ownerId,
+    claim,
+    memory_type: "inferred_candidate",
+    source_kind: "conversation",
+    source_id: source.sourceId,
+    source_locator: locator,
+  };
+}
+
+// One extracted candidate before any dedup/write decision — claim plus a
+// one-line reason (why this counts as durable, e.g. "stated as a
+// direction") and the verbatim excerpt it's grounded in. reason is returned
+// to the caller for display at confirm time; it is NOT persisted (writeMemory
+// has no field for it) — confirming should be a glance at reason + claim,
+// not a re-read of the original paste.
+export interface ExtractedCandidate {
+  claim: string;
+  reason: string;
+  excerpt: string;
+}
+
+// An existing memory's id+claim, as returned by searchMemories — the minimum
+// needed to report exactly what an "already known" match matched.
+export interface ExistingMemoryClaim {
+  id: string;
+  claim: string;
+}
+
+// Same exact-normalized comparison as isDuplicateClaim (reused, not
+// reimplemented) but returns the MATCHED existing memory rather than a bare
+// boolean — planPastedCandidateWrites needs the match's id to report it back
+// as "already known," not just to skip it silently.
+export function findDuplicateMemory(
+  candidateClaim: string,
+  existing: ExistingMemoryClaim[]
+): ExistingMemoryClaim | null {
+  const normalized = normalizeClaim(candidateClaim);
+  return existing.find((m) => normalizeClaim(m.claim) === normalized) ?? null;
+}
+
+export interface PlannedPastedWrite {
+  input: WriteMemoryInput;
+  reason: string;
+}
+
+export interface AlreadyKnownMatch {
+  claim: string;
+  reason: string;
+  existing_id: string;
+  existing_claim: string;
+}
+
+export interface PastedCandidateWritePlan {
+  toWrite: PlannedPastedWrite[];
+  alreadyKnown: AlreadyKnownMatch[];
+}
+
+// Pure planning step: given the candidates an LLM extracted from a paste and
+// the owner's existing confirmed memories (already fetched by the caller —
+// no I/O here), decides exactly which writeMemory() calls to make. A
+// near-identical existing memory is never silently dropped — it's reported
+// back in alreadyKnown with the existing memory's own id+claim, so the
+// caller can show it matched rather than leaving the owner wondering why an
+// expected candidate didn't appear. An empty `candidates` list always yields
+// an empty plan.
+export function planPastedCandidateWrites(
+  candidates: ExtractedCandidate[],
+  existingMemories: ExistingMemoryClaim[],
+  source: PastedTextSource
+): PastedCandidateWritePlan {
+  const toWrite: PlannedPastedWrite[] = [];
+  const alreadyKnown: AlreadyKnownMatch[] = [];
+  for (const candidate of candidates) {
+    const match = findDuplicateMemory(candidate.claim, existingMemories);
+    if (match) {
+      alreadyKnown.push({
+        claim: candidate.claim,
+        reason: candidate.reason,
+        existing_id: match.id,
+        existing_claim: match.claim,
+      });
+      continue;
+    }
+    toWrite.push({
+      input: buildPastedCandidateWriteInput(candidate.claim, candidate.excerpt, source),
+      reason: candidate.reason,
+    });
+  }
+  return { toWrite, alreadyKnown };
+}
