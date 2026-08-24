@@ -287,9 +287,15 @@ function SidebarInner({
 interface SidebarProps {
   recentRuns?: RecentRun[];
   onNewRequest?: () => void;
+  // When true, the persistent desktop rail never renders — navigation is
+  // reachable only through the hamburger-triggered drawer, at any viewport
+  // width. For surfaces that want all plumbing collapsed behind one control
+  // instead of an always-visible 220px rail. Default false preserves every
+  // existing page's behavior exactly.
+  alwaysCollapsed?: boolean;
 }
 
-export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
+export function Sidebar({ recentRuns = [], onNewRequest, alwaysCollapsed = false }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -308,21 +314,22 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
   }
 
   const innerProps = { pathname, recentRuns, onNewRequest: handleNewRequest };
+  const drawerOnly = alwaysCollapsed ? "" : "lg:hidden";
 
   return (
     <>
-      {/* ── Mobile overlay drawer ── */}
+      {/* ── Overlay drawer — mobile-only normally, all viewports when alwaysCollapsed ── */}
       {mobileOpen && (
         <>
           {/* Backdrop */}
           <div
-            className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            className={`${drawerOnly} fixed inset-0 z-40 bg-black/50 backdrop-blur-sm`}
             onClick={close}
             aria-hidden="true"
           />
           {/* Drawer panel */}
           <aside
-            className="lg:hidden fixed inset-y-0 left-0 z-50 w-[260px] flex flex-col overflow-y-auto"
+            className={`${drawerOnly} fixed inset-y-0 left-0 z-50 w-[260px] flex flex-col overflow-y-auto`}
             style={{
               background: "var(--forest)",
               borderRight: "0.5px solid var(--forest-border)",
@@ -346,7 +353,8 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
         </>
       )}
 
-      {/* ── Desktop sidebar ── */}
+      {/* ── Desktop sidebar — suppressed entirely when alwaysCollapsed ── */}
+      {!alwaysCollapsed && (
       <aside
         className="hidden lg:flex flex-col w-[220px] shrink-0 h-dvh"
         style={{
@@ -356,6 +364,7 @@ export function Sidebar({ recentRuns = [], onNewRequest }: SidebarProps) {
       >
         <SidebarInner {...innerProps} />
       </aside>
+      )}
     </>
   );
 }

@@ -14,17 +14,11 @@ const TOOL_LABELS: Record<string, string> = {
   cross_reference: "Cross-reference",
   handle_email: "Handle email",
   read_gmail: "Read Gmail",
-  list_visitors: "List visitors",
-  owner_ping: "Ping",
   get_connector_status: "Connector status",
   toggle_connector: "Toggle connector",
   list_mcp_connectors: "List MCP connectors",
   set_connector_lane: "Set connector lane",
   toggle_mcp_connector: "Toggle MCP connector",
-  get_current_time: "Get time",
-  get_availability: "Get availability",
-  create_scheduling_link: "Create scheduling link",
-  leave_message: "Leave message",
 };
 
 function toolLabel(name: string): string {

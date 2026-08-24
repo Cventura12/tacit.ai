@@ -1,1 +1,0 @@
-select title, count(*) from document_pages p join documents d on d.id=p.doc_id group by title;

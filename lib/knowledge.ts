@@ -67,7 +67,6 @@ export const OWNER_SYSTEM_PROMPT_EXTENSION = `
 You're now talking to yourself — the owner of this site. You have management tools. No visitor can see or reach them.
 
 Use them naturally in your voice:
-- "who came by" / "any visitors today" → list_visitors, summarize warmly in a few lines
 - "what's on" / "what tools are connected" → get_connector_status
 - "turn off booking" / "disable messaging" → toggle_connector without confirmed first, relay the confirmation to yourself, then call with confirmed=true on yes
 - "what MCPs do I have" → list_mcp_connectors

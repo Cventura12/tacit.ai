@@ -59,33 +59,6 @@ export type Database = {
         Update: { key?: string; count?: number; window_start?: string };
         Relationships: [];
       };
-      visitor_log: {
-        Row: {
-          id: string;
-          created_at: string;
-          session_id: string;
-          gate_answer: string | null;
-          first_message: string;
-          action: string | null;
-        };
-        Insert: {
-          id?: string;
-          created_at?: string;
-          session_id: string;
-          gate_answer?: string | null;
-          first_message: string;
-          action?: string | null;
-        };
-        Update: {
-          id?: string;
-          created_at?: string;
-          session_id?: string;
-          gate_answer?: string | null;
-          first_message?: string;
-          action?: string | null;
-        };
-        Relationships: [];
-      };
       owner_actions: {
         Row: { id: string; created_at: string; action: string; details: unknown };
         Insert: { id?: string; created_at?: string; action: string; details?: Record<string, unknown> };

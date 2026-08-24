@@ -35,24 +35,6 @@ export interface ConnectorDTO {
 
 const BUILTIN_SEEDS = [
   {
-    id: "00000000-0000-0000-0000-000000000001",
-    type: "builtin" as const,
-    name: "Booking",
-    description: "Let visitors check your Calendly availability and book a meeting.",
-    tool_names: ["get_availability", "create_scheduling_link"],
-    enabled: true,
-    lane: "public" as Lane,
-  },
-  {
-    id: "00000000-0000-0000-0000-000000000002",
-    type: "builtin" as const,
-    name: "Leave a message",
-    description: "Let visitors send a message directly to your inbox via email.",
-    tool_names: ["leave_message"],
-    enabled: true,
-    lane: "public" as Lane,
-  },
-  {
     id: "00000000-0000-0000-0000-000000000003",
     type: "builtin" as const,
     name: "Gmail (read + send)",
@@ -100,32 +82,6 @@ export async function getConnectorById(id: string): Promise<ConnectorRow | null>
     .single();
   if (error || !data) return null;
   return data as ConnectorRow;
-}
-
-// Returns all tool names belonging to ENABLED built-in connectors.
-// Used by the agent route to determine which built-in tools to expose.
-export async function getEnabledToolNames(): Promise<Set<string>> {
-  if (!isDbConfigured()) {
-    // Supabase not set up yet — all built-in connector tools are enabled.
-    const all = new Set<string>();
-    BUILTIN_SEEDS.forEach((s) => s.tool_names.forEach((n) => all.add(n)));
-    return all;
-  }
-  await ensureBuiltins();
-  const db = getDb();
-  const { data, error } = await db
-    .from("connectors")
-    .select("tool_names,enabled")
-    .eq("type", "builtin");
-  if (error) throw new Error(`Failed to load connector states: ${error.message}`);
-
-  const enabled = new Set<string>();
-  for (const row of data ?? []) {
-    if (row.enabled) {
-      for (const name of row.tool_names ?? []) enabled.add(name);
-    }
-  }
-  return enabled;
 }
 
 // Returns all enabled MCP connectors with their encrypted credentials.

@@ -10,7 +10,7 @@ Two things in one codebase:
 
 **A public-facing chat interface.** Anyone who knows Caleb can open the site, answer "how do you know me?", and have a conversation with an AI that knows his background, values, projects, and story. It's a living personal presence — smarter than a bio, more personal than a portfolio.
 
-**An owner agent.** Caleb opens the same UI in owner mode and talks to a second Claude agent that can read his Gmail, search his uploaded documents, draft email replies, manage MCP connectors, and track visitors. Everything through natural language, no separate dashboards.
+**An owner agent.** Caleb opens the same UI in owner mode and talks to a second Claude agent that can read his Gmail, search his uploaded documents, draft email replies, and manage MCP connectors. Everything through natural language, no separate dashboards.
 
 ---
 
@@ -19,7 +19,6 @@ Two things in one codebase:
 ### Visitor chat
 - Gate screen ("how do you know me?") that seeds the conversation with context about who the visitor is
 - Full SSE streaming chat with Claude claude-sonnet-4-6 using a custom system prompt shaped like Caleb
-- Visitor session tracking — each conversation is logged to Supabase with the gate answer and session ID
 - Suggested question chips on first open
 
 ### Owner mode
@@ -27,7 +26,6 @@ Two things in one codebase:
 - **read_gmail** — searches Gmail with full Gmail syntax, returns sender/subject/snippet/date/unread
 - **handle_email** — full triage pipeline: reads an email thread, searches the document store for relevant pages, classifies the email (actionable / needs your call / ignore), drafts a reply grounded in the matched documents, returns a structured proposal card
 - **search_documents** — full-text + FTS fallback search across uploaded PDFs
-- **list_visitors** — shows recent visitor sessions with gate answers
 - **list_mcp_connectors / toggle_mcp_connector / set_connector_lane** — manages MCP server connections and routing lanes
 - **get_connector_status / toggle_connector** — manages other integrations
 
