@@ -1,10 +1,4 @@
 import type { EmailBodyProvenance, TrustedGmailMessage } from "@/lib/gmail";
-import { get_current_time } from "./get_current_time";
-import { get_availability } from "./get_availability";
-import { create_scheduling_link } from "./create_scheduling_link";
-import { leave_message } from "./leave_message";
-import { owner_ping } from "./owner_ping";
-import { list_visitors } from "./owner/list_visitors";
 import { read_gmail } from "./owner/read_gmail";
 import { read_gmail_message } from "./owner/read_gmail_message";
 import { get_connector_status } from "./owner/get_connector_status";
@@ -98,14 +92,7 @@ export interface ToolDefinition {
 // Add new tools here. The agent loop reads this array — no other wiring needed.
 
 export const TOOL_REGISTRY: ToolDefinition[] = [
-  // Public tools
-  get_current_time,
-  get_availability,
-  create_scheduling_link,
-  leave_message,
   // Owner tools
-  owner_ping,
-  list_visitors,
   read_gmail,
   read_gmail_message,
   get_connector_status,

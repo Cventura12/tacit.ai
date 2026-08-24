@@ -5,7 +5,7 @@ import { TOOL_REGISTRY } from "@/lib/tools/registry";
 import type { ToolDefinition } from "@/lib/tools/registry";
 import type { TrustedGmailMessage } from "@/lib/gmail";
 import type { StreamEvent, EmailProposal } from "@/lib/types";
-import { getEnabledToolNames, getEnabledMcpConnectors } from "@/lib/connectors";
+import { getEnabledMcpConnectors } from "@/lib/connectors";
 import { buildSafeToolLogSummary } from "@/lib/tools/tool-log-summary";
 import { buildMcpTools } from "@/lib/mcp";
 import { checkRateLimit } from "@/lib/ratelimit";
@@ -71,12 +71,6 @@ function sse(event: StreamEvent): Uint8Array {
   return enc.encode(`data: ${JSON.stringify(event)}\n\n`);
 }
 
-const CONNECTOR_MANAGED_TOOLS = new Set([
-  "get_availability",
-  "create_scheduling_link",
-  "leave_message",
-]);
-
 const MAX_ITER = 5;
 
 async function runAgentLoop(
@@ -122,22 +116,14 @@ async function runAgentLoop(
   }
 
   try {
-    let enabledConnectorTools: Set<string>;
     let mcpConnectors: Awaited<ReturnType<typeof getEnabledMcpConnectors>> = [];
     try {
-      [enabledConnectorTools, mcpConnectors] = await Promise.all([
-        getEnabledToolNames(),
-        getEnabledMcpConnectors(),
-      ]);
+      mcpConnectors = await getEnabledMcpConnectors();
     } catch (err) {
       console.warn("[agent] Connector DB unavailable, using defaults:", err);
-      enabledConnectorTools = new Set(CONNECTOR_MANAGED_TOOLS);
     }
 
-    const allowedBuiltins = TOOL_REGISTRY.filter((t) => {
-      if (CONNECTOR_MANAGED_TOOLS.has(t.name)) return enabledConnectorTools.has(t.name);
-      return true;
-    });
+    const allowedBuiltins = TOOL_REGISTRY;
 
     let mcpTools: ToolDefinition[] = [];
     if (mcpConnectors.length > 0) {

@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import ChatPage from "@/components/ChatPage";
+import { Surface } from "@/components/Surface";
 
 export default async function Home() {
   const { userId } = await auth();
@@ -21,5 +21,5 @@ export default async function Home() {
     );
   }
 
-  return <ChatPage />;
+  return <Surface />;
 }
